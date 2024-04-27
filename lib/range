@@ -1,0 +1,98 @@
+#pragma once
+
+template<typename T>
+class Range {
+private:
+  T start;
+  T rend;
+
+public:
+  class Iterator {
+  private:
+    T current;
+
+  public:
+    Iterator(const T& value);
+
+    T operator*() const;
+
+    Iterator& operator++();
+
+    Iterator operator++(int);
+    
+    bool operator!=(const Iterator& other) const;
+  };
+
+  Range(const T& start, const T& end);
+
+  Iterator begin() const;
+
+  Iterator end() const;
+
+  T getStart() const;
+  T getEnd() const;
+
+  bool contains(const T& value) const;
+
+  bool overlaps(const Range& other) const;
+};
+
+template<typename T>
+Range<T>::Range(const T& start, const T& end) : start(start), rend(end) {}
+
+template<typename T>
+typename Range<T>::Iterator Range<T>::begin() const {
+  return Iterator(start);
+}
+
+template<typename T>
+typename Range<T>::Iterator Range<T>::end() const {
+  return Iterator(rend + 1);
+}
+
+template<typename T>
+T Range<T>::getStart() const {
+  return start;
+}
+
+template<typename T>
+T Range<T>::getEnd() const {
+  return rend;
+}
+
+template<typename T>
+bool Range<T>::contains(const T& value) const {
+  return value >= start && value < rend;
+}
+
+template<typename T>
+bool Range<T>::overlaps(const Range<T>& other) const {
+  return other.contains(start) || other.contains(rend) ||
+    contains(other.getStart()) || contains(other.getEnd());
+}
+
+template<typename T>
+Range<T>::Iterator::Iterator(const T& value) : current(value) {}
+
+template<typename T>
+T Range<T>::Iterator::operator*() const {
+  return current;
+}
+
+template<typename T>
+typename Range<T>::Iterator& Range<T>::Iterator::operator++() {
+  ++current;
+  return *this;
+}
+
+template<typename T>
+typename Range<T>::Iterator Range<T>::Iterator::operator++(int) {
+  Iterator copy = *this;
+  ++current;
+  return copy;
+}
+
+template<typename T>
+bool Range<T>::Iterator::operator!=(const Iterator& other) const {
+  return current != other.current;
+}

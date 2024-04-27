@@ -1,0 +1,31 @@
+func main
+  pushi 10
+  call other
+  print
+  end
+fend
+func other 
+  store num
+
+  pushi 0
+  store sum
+
+  label LC0
+  load num
+  load sum
+  add
+  store sum
+
+  load num
+  pushi 1
+  sub
+  store num
+
+  load num
+  pushi 0
+  cmp
+  jgt LC0
+
+  load sum
+  ret
+fend
