@@ -15,7 +15,7 @@ func vec3::move_left do
 end
 
 func vec3::print do
-  println("pos: %f, %f, %f", self.x, self.y, self.z)
+  println("pos: ${float}, ${float}, ${float}", self.x, self.y, self.z)
 end
 
 struct entity
@@ -25,7 +25,7 @@ struct entity
 end
 
 func entity::print do
-  println("name: %s\nhealth: %d\n", self.name, self.health)
+  println("name: ${str}\nhealth: ${int}\n", self.name, self.health)
   self.pos.print()
 end
 

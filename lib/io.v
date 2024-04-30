@@ -2,7 +2,6 @@ use stdio from C_STD
 use stdarg from C_STD
 use stdlib from C_STD
 use string from C_STD
-use '../lib/range' from C
 
 func print(fmt: const str, *args) do
   fmt_len: int = strlen(fmt)

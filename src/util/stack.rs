@@ -15,14 +15,11 @@ impl<T> Stack<T> {
   pub fn pop(&mut self) -> Option<T> {
     self.stack.pop_back()
   }
-  pub fn top(&mut self) -> Option<&T> {
-    self.stack.back()
-  }
 
   pub fn len(&self) -> usize {
     self.stack.len()
   }
-  pub fn is_empty(&self) -> bool {
+  pub fn _is_empty(&self) -> bool {
     self.stack.is_empty()
   }
 }

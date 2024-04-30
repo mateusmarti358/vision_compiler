@@ -4,7 +4,8 @@ func main
   print
   end
 fend
-func other 
+
+func other
   store num
 
   pushi 0
