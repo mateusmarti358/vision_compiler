@@ -19,7 +19,9 @@ char* read(int size) {
 }
 
 void print(const char* fmt, ...) {
-va_list args;va_start(args, fmt);	long long fmt_len = strlen(fmt);
+	va_list args;
+	va_start(args, fmt);
+	long long fmt_len = strlen(fmt);
 	char* arg_type = ((char*) malloc(128 * sizeof(char)));
 	long long arg_type_len = 0;
 	long long i = 0;

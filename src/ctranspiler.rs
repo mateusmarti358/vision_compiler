@@ -269,7 +269,7 @@ fn statement_to_c(
                 loop {
                     match method_expression {
                         Expression::Identifier(method) => {
-                            let super_name = symbol_table.get_var(&self_arg).unwrap();
+                            let super_name = symbol_table.get_var(&self_arg).unwrap().0;
                             let mut out = format!("{}_{}(", super_name, method);
 
                             out += &expression_to_c(&self_arg, symbol_table);
@@ -536,7 +536,7 @@ impl Transpiler {
 
                     let (cstmt, decl) = statement_to_c(stmt, &self.symbol_table);
                     if let Some(decl) = decl {
-                        self.symbol_table.set_var(decl.0.clone(), decl.1);
+                        self.symbol_table.set_var(decl.0.clone(), decl.1, None);
                         decl_curr_scope.push(decl.0);
                     }
 
@@ -628,8 +628,11 @@ impl Transpiler {
 
         match super_name {
             Some(super_name) => {
-                self.symbol_table
-                    .set_var("self".to_string(), Type::Custom(super_name.clone(), false));
+                self.symbol_table.set_var(
+                    "self".to_string(),
+                    Type::Custom(super_name.clone(), false),
+                    None,
+                );
 
                 self.fn_defs.push(format!(
                     "{} {}_{}({});",
@@ -662,8 +665,8 @@ impl Transpiler {
         }
 
         if let Some(varg) = &varg {
-            body_str.push_str(&format!("va_list {};", varg));
-            body_str.push_str(&format!("va_start({}, {});", varg, va_start));
+            body_str.push_str(&format!("\tva_list {};\n", varg));
+            body_str.push_str(&format!("\tva_start({}, {});\n", varg, va_start));
         }
 
         body_str += &self.body(&body, &varg, Vec::new());
@@ -747,7 +750,7 @@ impl Transpiler {
     }
 }
 
-pub fn transpile_from_ast(ast: Vec<Statement>) -> Result<String, CompilationError> {
+pub fn _transpile_from_ast(ast: Vec<Statement>) -> Result<String, CompilationError> {
     Transpiler::new().transpile(ast)
 }
 

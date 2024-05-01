@@ -2,10 +2,10 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::parser::Expression;
 
-use crate::types::Type;
+use crate::types::{Type, Value};
 
 pub struct SymbolTable {
-    vars: HashMap<String, VecDeque<Type>>,
+    vars: HashMap<String, VecDeque<(Type, Option<Value>)>>,
 
     structs: HashMap<String, Vec<(String, Type)>>,
     enums: Vec<String>,
@@ -20,19 +20,19 @@ impl SymbolTable {
         }
     }
 
-    pub fn set_var(&mut self, id: String, t: Type) {
+    pub fn set_var(&mut self, id: String, t: Type, val: Option<Value>) {
         if let Some(stack) = self.vars.get_mut(&id) {
-            stack.push_back(t);
+            stack.push_back((t, val));
         } else {
             let mut stack = VecDeque::new();
-            stack.push_back(t);
+            stack.push_back((t, val));
             self.vars.insert(id, stack);
         }
     }
     pub fn unset_var(&mut self, id: &String) {
         self.vars.get_mut(id).unwrap().pop_back();
     }
-    pub fn get_var(&self, id: &Expression) -> Option<&Type> {
+    pub fn get_var(&self, id: &Expression) -> Option<(Type, Option<Value>)> {
         let mut get_stack = VecDeque::new();
         let mut expr = id.clone();
         loop {
@@ -56,22 +56,35 @@ impl SymbolTable {
             }
         }
 
-        let mut curr_type = None;
-        while !get_stack.is_empty() {
-            let curr = get_stack.pop_back().unwrap();
-
-            if curr_type.is_none() {
-                curr_type = self.vars.get(&curr).unwrap().back();
+        let mut curr_var = None;
+        while let Some(curr) = get_stack.pop_back() {
+            if curr_var.is_none() {
+                curr_var = self.vars.get(&curr).and_then(|list| list.back().cloned());
                 continue;
             }
 
-            if let Type::Custom(name, _) = curr_type.unwrap() {
-                let fields = self.get_struct(&name).unwrap();
-                curr_type = Some(&fields.iter().find(|(field, _)| *field == curr).unwrap().1);
+            if let Type::Custom(name, _) = &curr_var.clone().unwrap().0 {
+                if let Some(fields) = self.get_struct(&name) {
+                    if let Some(curr_type) = fields.iter().find_map(|(field, ty)| {
+                        if *field == curr {
+                            Some(ty.clone())
+                        } else {
+                            None
+                        }
+                    }) {
+                        let curr_val = match &curr_var.unwrap().1 {
+                            Some(Value::Custom(fields)) => fields.get(&curr).cloned(),
+                            None => None,
+                            _ => unreachable!(),
+                        };
+
+                        curr_var = Some((curr_type, curr_val));
+                    }
+                }
             }
         }
 
-        curr_type
+        curr_var
     }
 
     pub fn set_struct(&mut self, name: String, fields: Vec<(String, Type)>) {
