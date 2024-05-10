@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::lexer::tokenize;
+use crate::lexer::{tokenize, Token};
 use crate::parser::{parse, Expression, Statement};
 use crate::symbol_table::SymbolTable;
 use crate::types::Type;
@@ -19,18 +19,40 @@ fn c_type(t: &Type, symbol_table: &SymbolTable) -> String {
         Type::Array(t, false) => format!("{}[]", c_type(t, symbol_table)),
 
         Type::Bool(false) => "bool".to_string(),
-        Type::Int(false, false) => "long long".to_string(),
-        Type::Int(true, false) => "unsigned long long".to_string(),
-        Type::Float(false) => "float".to_string(),
+
+        Type::U8(false) => "unsigned char".to_string(),
+        Type::U16(false) => "unsigned short".to_string(),
+        Type::U32(false) => "unsigned int".to_string(),
+        Type::U64(false) => "unsigned long long".to_string(),
+
+        Type::I8(false) => "char".to_string(),
+        Type::I16(false) => "short".to_string(),
+        Type::I32(false) => "int".to_string(),
+        Type::I64(false) => "long long".to_string(),
+
+        Type::F32(false) => "float".to_string(),
+        Type::F64(false) => "double".to_string(),
+
         Type::String(false) => "char*".to_string(),
         Type::Void => "void".to_string(),
 
         Type::Custom(s, true) => format!("const {s}*"),
         Type::Array(t, true) => format!("const {}[]", c_type(t, symbol_table)),
         Type::Bool(true) => "const bool".to_string(),
-        Type::Int(false, true) => "const long long".to_string(),
-        Type::Int(true, true) => "const unsigned long long".to_string(),
-        Type::Float(true) => "const float".to_string(),
+
+        Type::U8(true) => "const unsigned char".to_string(),
+        Type::U16(true) => "const unsigned short".to_string(),
+        Type::U32(true) => "const unsigned int".to_string(),
+        Type::U64(true) => "const unsigned long long".to_string(),
+
+        Type::I8(true) => "const char".to_string(),
+        Type::I16(true) => "const short".to_string(),
+        Type::I32(true) => "const int".to_string(),
+        Type::I64(true) => "const long long".to_string(),
+
+        Type::F32(true) => "const float".to_string(),
+        Type::F64(true) => "const double".to_string(),
+
         Type::String(true) => "const char*".to_string(),
     }
 }
@@ -686,7 +708,7 @@ impl Transpiler {
                 Statement::Declaration(id, t, None) => {
                     fields.push((id.clone(), t.clone()));
                     self.structs
-                        .push(format!("  {} {};\n", c_type(&t, &self.symbol_table), id))
+                        .push(format!("\t{} {};\n", c_type(&t, &self.symbol_table), id))
                 }
                 _ => panic!("Unexpected statement: {:?}", field),
             }
@@ -729,12 +751,12 @@ impl Transpiler {
                         continue;
                     }
 
-                    let transpiled_mod = match namespace {
-                        Some(namespace) => transpile_from_src(
-                            &Path::new(&format!("{}/{}.v", namespace, mod_name)),
-                            false,
-                        )?,
-                        None => transpile_from_src(&Path::new(&format!("{}.v", mod_name)), false)?,
+                    let (_, _, transpiled_mod) = match namespace {
+                        Some(namespace) => transpile_from_src(&Path::new(&format!(
+                            "{}/{}.v",
+                            namespace, mod_name
+                        )))?,
+                        None => transpile_from_src(&Path::new(&format!("{}.v", mod_name)))?,
                     };
 
                     self.headers.push(transpiled_mod);
@@ -754,23 +776,18 @@ pub fn _transpile_from_ast(ast: Vec<Statement>) -> Result<String, CompilationErr
     Transpiler::new().transpile(ast)
 }
 
-pub fn transpile_from_src(src: &Path, print: bool) -> Result<String, CompilationError> {
+pub fn transpile_from_src(
+    src: &Path,
+) -> Result<(Vec<Token>, Vec<Statement>, String), CompilationError> {
     let tokens = match tokenize(read_src(&src)) {
         Ok(tokens) => tokens,
         Err(e) => return Err(CompilationError::LexerError(e)),
     };
-    if print {
-        println!("{:#?}", tokens);
-    }
 
-    let ast = match parse(tokens) {
+    let ast = match parse(tokens.clone()) {
         Ok(ast) => ast,
         Err(e) => return Err(CompilationError::ParserError(e)),
     };
 
-    if print {
-        println!("{:#?}", ast);
-    }
-
-    Transpiler::new().transpile(ast)
+    Ok((tokens, ast.clone(), Transpiler::new().transpile(ast)?))
 }

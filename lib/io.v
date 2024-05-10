@@ -4,12 +4,12 @@ use stdlib from C_STD
 use string from C_STD
 
 func print(fmt: const str, *args) do
-  fmt_len: int = strlen(fmt)
+  fmt_len: i32 = strlen(fmt)
   arg_type: str = malloc(128 * sizeof(char)) as str
   defer free(arg_type)
-  arg_type_len: int = 0
+  arg_type_len: i32 = 0
   
-  i: int = 0
+  i: i32 = 0
 
   while i < fmt_len do
     if fmt[i] == !{'$'} and fmt[i + 1] == !{'{'} do

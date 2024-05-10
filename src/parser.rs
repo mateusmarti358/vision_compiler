@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use crate::lexer::{Token, TokenValue};
 
-use crate::types::Type;
+use crate::types::{Type, Value};
 
 #[derive(Debug)]
 pub enum ParserError {
@@ -380,7 +382,7 @@ struct Parser {
     idx: usize,
 
     tokens: Vec<Token>,
-    //constants: HashMap<String, Value>,
+    constants: HashMap<String, Value>,
 }
 impl Parser {
     fn new(src: Vec<Token>) -> Parser {
@@ -388,6 +390,8 @@ impl Parser {
             idx: 0,
 
             tokens: src,
+
+            constants: HashMap::new(),
         }
     }
 
@@ -399,6 +403,50 @@ impl Parser {
             self.idx += 1;
         }
         self.tokens[self.idx - 1].clone()
+    }
+
+    fn is_constexpr(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Or(lexpr, rexpr)
+            | Expression::And(lexpr, rexpr)
+            | Expression::Add(lexpr, rexpr)
+            | Expression::Subtract(lexpr, rexpr)
+            | Expression::Multiply(lexpr, rexpr)
+            | Expression::Divide(lexpr, rexpr)
+            | Expression::Mod(lexpr, rexpr)
+            | Expression::Equal(lexpr, rexpr)
+            | Expression::LessThan(lexpr, rexpr)
+            | Expression::LessEqual(lexpr, rexpr)
+            | Expression::GreaterThan(lexpr, rexpr)
+            | Expression::GreaterEqual(lexpr, rexpr)
+            | Expression::Different(lexpr, rexpr)
+            | Expression::Range(lexpr, rexpr)
+            | Expression::Index(lexpr, rexpr) => {
+                self.is_constexpr(&lexpr) && self.is_constexpr(&rexpr)
+            }
+
+            Expression::InlineC(inline_c) => false,
+
+            Expression::As(expr, _) => self.is_constexpr(expr),
+            Expression::Not(expr) => self.is_constexpr(expr),
+
+            Expression::Identifier(id) => self.constants.contains_key(id),
+
+            Expression::Integer(_) => true,
+            Expression::Float(_) => true,
+            Expression::Boolean(_) => true,
+            Expression::String(_) => true,
+            Expression::Struct(_, _) => true,
+            Expression::StaticGet(_, _) => true,
+
+            Expression::Call(_, _) => todo!(),
+
+            Expression::Get(lexpr, _) => self.is_constexpr(lexpr),
+        }
+    }
+    fn _eval_constexpr(&self, expr: &Expression) -> Option<Expression> {
+        //match expr {}
+        Some(expr.clone())
     }
 
     fn parse_expr(&mut self) -> Result<Expression, ParserError> {
@@ -631,6 +679,7 @@ impl Parser {
 
                 self.next();
                 let expr = self.parse_expr()?;
+                eprintln!("is constexpr? {:?}, {}", expr, self.is_constexpr(&expr));
                 Ok(Statement::Declaration(
                     id,
                     Type::Custom(tid, is_const),

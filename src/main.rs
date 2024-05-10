@@ -5,6 +5,8 @@ use std::path::Path;
 
 use std::io::Write;
 
+use lexer::Token;
+use parser::Statement;
 use util::args::{self, parse_args};
 
 use crate::util::file::read_src;
@@ -41,12 +43,15 @@ fn clean(all: bool) {
     }
 }
 
-fn generate_c(input: Option<String>, output: Option<String>) -> Result<(), CompilationError> {
+fn generate_c(
+    input: Option<String>,
+    output: Option<String>,
+) -> Result<(Vec<Token>, Vec<Statement>), CompilationError> {
     let input_path = match &input {
         Some(input) => Path::new(input),
         None => Path::new("main.v"),
     };
-    let transpiled = ctranspiler::transpile_from_src(input_path, true)?;
+    let (tokens, ast, transpiled) = ctranspiler::transpile_from_src(input_path)?;
 
     {
         let mut out_file = OpenOptions::new()
@@ -72,7 +77,7 @@ fn generate_c(input: Option<String>, output: Option<String>) -> Result<(), Compi
             .expect("Unable to write to file");
     }
 
-    return Ok(());
+    return Ok((tokens, ast));
 }
 
 fn main() -> Result<(), CompilationError> {
@@ -85,7 +90,14 @@ fn main() -> Result<(), CompilationError> {
     };
 
     if options.gen_c {
-        generate_c(options.input, options.output)?;
+        let (tokens, ast) = generate_c(options.input, options.output)?;
+
+        if options.show_tokens {
+            eprintln!("Tokens: {:#?}", tokens);
+        }
+        if options.show_ast {
+            eprintln!("AST: {:#?}", ast);
+        }
     }
 
     if options.clean {

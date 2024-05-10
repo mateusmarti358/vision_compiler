@@ -14,6 +14,9 @@ pub struct Arguments {
     pub gen_c: bool,
     pub gen_asm: bool,
 
+    pub show_tokens: bool,
+    pub show_ast: bool,
+
     pub output: Option<String>,
     pub input: Option<String>,
 }
@@ -29,6 +32,9 @@ pub fn parse_args(args: VecDeque<String>) -> Result<Arguments, ArgumentParserErr
 
         gen_c: false,
         gen_asm: false,
+
+        show_tokens: false,
+        show_ast: false,
 
         output: None,
         input: None,
@@ -46,12 +52,11 @@ pub fn parse_args(args: VecDeque<String>) -> Result<Arguments, ArgumentParserErr
                 }
             }
 
-            "-gen-asm" => {
-                arguments.gen_asm = true;
-            }
-            "-gen-c" => {
-                arguments.gen_c = true;
-            }
+            "-gen-asm" => arguments.gen_asm = true,
+            "-gen-c" => arguments.gen_c = true,
+
+            "-tokens" => arguments.show_tokens = true,
+            "-ast" => arguments.show_ast = true,
 
             "-o" | "--output" => {
                 idx += 1;

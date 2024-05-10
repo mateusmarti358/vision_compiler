@@ -141,8 +141,15 @@ impl<'a> Lexer<'a> {
             "f32" => Some(Type::F32(is_const)),
             "f64" => Some(Type::F64(is_const)),
 
-            "int" => Some(Type::Int(false, is_const)),
-            "uint" => Some(Type::Int(true, is_const)),
+            "i8" => Some(Type::I8(is_const)),
+            "i16" => Some(Type::I16(is_const)),
+            "i32" => Some(Type::I32(is_const)),
+            "i64" => Some(Type::I64(is_const)),
+
+            "u8" => Some(Type::U8(is_const)),
+            "u16" => Some(Type::U16(is_const)),
+            "u32" => Some(Type::U32(is_const)),
+            "u64" => Some(Type::U64(is_const)),
 
             "str" => Some(Type::String(is_const)),
             "void" => Some(Type::Void),
