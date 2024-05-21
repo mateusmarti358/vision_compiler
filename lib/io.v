@@ -5,7 +5,7 @@ use string from C_STD
 
 func print(fmt: const str, *args) do
   fmt_len: i32 = strlen(fmt)
-  arg_type: str = malloc(128 * sizeof(char)) as str
+  arg_type: str = malloc(6 * sizeof(char)) as str
   defer free(arg_type)
   arg_type_len: i32 = 0
   

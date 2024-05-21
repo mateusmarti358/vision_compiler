@@ -1,6 +1,6 @@
 use io from lib
 
-func other(n: int) do
+func other(n: i32) do
   defer println('${int}', 1)
 
   if n == 3 do
@@ -18,6 +18,6 @@ func other(n: int) do
 end
 
 func main do
-  n: int = atoi(read(2))
+  n: i32 = atoi(read(2))
   other(n)
 end

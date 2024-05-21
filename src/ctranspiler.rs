@@ -558,7 +558,7 @@ impl Transpiler {
 
                     let (cstmt, decl) = statement_to_c(stmt, &self.symbol_table);
                     if let Some(decl) = decl {
-                        self.symbol_table.set_var(decl.0.clone(), decl.1, None);
+                        self.symbol_table.set_var(&decl.0, &decl.1, None);
                         decl_curr_scope.push(decl.0);
                     }
 
@@ -651,8 +651,8 @@ impl Transpiler {
         match super_name {
             Some(super_name) => {
                 self.symbol_table.set_var(
-                    "self".to_string(),
-                    Type::Custom(super_name.clone(), false),
+                    &"self".to_string(),
+                    &Type::Custom(super_name.clone(), false),
                     None,
                 );
 

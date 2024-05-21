@@ -1,13 +1,12 @@
-use std::collections::HashMap;
-
 use crate::lexer::{Token, TokenValue};
 
-use crate::types::{Type, Value};
+use crate::symbol_table::SymbolTable;
+use crate::types::Type;
 
 #[derive(Debug)]
 pub enum ParserError {
     UnexpectedToken(Token),
-
+    UndeclaredVariable(String),
     FunctionsCannotReturnConst,
 }
 
@@ -382,7 +381,7 @@ struct Parser {
     idx: usize,
 
     tokens: Vec<Token>,
-    constants: HashMap<String, Value>,
+    symbol_table: SymbolTable,
 }
 impl Parser {
     fn new(src: Vec<Token>) -> Parser {
@@ -391,7 +390,7 @@ impl Parser {
 
             tokens: src,
 
-            constants: HashMap::new(),
+            symbol_table: SymbolTable::new(),
         }
     }
 
@@ -405,7 +404,7 @@ impl Parser {
         self.tokens[self.idx - 1].clone()
     }
 
-    fn is_constexpr(&self, expr: &Expression) -> bool {
+    fn is_constexpr(&self, expr: &Expression) -> Result<bool, ParserError> {
         match expr {
             Expression::Or(lexpr, rexpr)
             | Expression::And(lexpr, rexpr)
@@ -422,24 +421,33 @@ impl Parser {
             | Expression::Different(lexpr, rexpr)
             | Expression::Range(lexpr, rexpr)
             | Expression::Index(lexpr, rexpr) => {
-                self.is_constexpr(&lexpr) && self.is_constexpr(&rexpr)
+                Ok(self.is_constexpr(&lexpr)? && self.is_constexpr(&rexpr)?)
             }
 
-            Expression::InlineC(inline_c) => false,
+            Expression::InlineC(_) => Ok(false),
 
             Expression::As(expr, _) => self.is_constexpr(expr),
             Expression::Not(expr) => self.is_constexpr(expr),
 
-            Expression::Identifier(id) => self.constants.contains_key(id),
+            Expression::Identifier(id) => {
+                if let Some(var) = self
+                    .symbol_table
+                    .get_var(&Expression::Identifier(id.to_string()))
+                {
+                    Ok(var.1.is_some())
+                } else {
+                    Err(ParserError::UndeclaredVariable(id.to_string()))
+                }
+            }
 
-            Expression::Integer(_) => true,
-            Expression::Float(_) => true,
-            Expression::Boolean(_) => true,
-            Expression::String(_) => true,
-            Expression::Struct(_, _) => true,
-            Expression::StaticGet(_, _) => true,
+            Expression::Integer(_) => Ok(true),
+            Expression::Float(_) => Ok(true),
+            Expression::Boolean(_) => Ok(true),
+            Expression::String(_) => Ok(true),
+            Expression::Struct(_, _) => Ok(true),
+            Expression::StaticGet(_, _) => Ok(true),
 
-            Expression::Call(_, _) => todo!(),
+            Expression::Call(_name, _) => Ok(false),
 
             Expression::Get(lexpr, _) => self.is_constexpr(lexpr),
         }
@@ -656,38 +664,29 @@ impl Parser {
             _ => false,
         };
 
-        match self.curr().get_value() {
+        let t = match self.curr().get_value() {
             TokenValue::Type(mut t) => {
                 t.set_constant(is_const);
-
-                if self.next().get_value() != TokenValue::Assign {
-                    return Ok(Statement::Declaration(id, t, None));
-                }
-
-                self.next();
-                let expr = self.parse_expr()?;
-                Ok(Statement::Declaration(id, t, Some(expr)))
+                t
             }
-            TokenValue::Identifier(tid) => {
-                if self.next().get_value() != TokenValue::Assign {
-                    return Ok(Statement::Declaration(
-                        id,
-                        Type::Custom(tid, is_const),
-                        None,
-                    ));
-                }
+            TokenValue::Identifier(tid) => Type::Custom(tid, is_const),
+            _ => return Err(ParserError::UnexpectedToken(self.curr())),
+        };
 
-                self.next();
-                let expr = self.parse_expr()?;
-                eprintln!("is constexpr? {:?}, {}", expr, self.is_constexpr(&expr));
-                Ok(Statement::Declaration(
-                    id,
-                    Type::Custom(tid, is_const),
-                    Some(expr),
-                ))
-            }
-            _ => Err(ParserError::UnexpectedToken(self.curr())),
+        if self.next().get_value() != TokenValue::Assign {
+            return Ok(Statement::Declaration(id, t, None));
         }
+
+        self.next();
+        let expr = self.parse_expr()?;
+
+        if self.is_constexpr(&expr)? {
+            self.symbol_table.set_var(&id, &t, None); // TODO: self._eval_constexpr(&expr))
+        } else {
+            self.symbol_table.set_var(&id, &t, None);
+        }
+
+        Ok(Statement::Declaration(id, t, Some(expr)))
     }
     fn make_use(&mut self) -> Result<Statement, ParserError> {
         let mod_name = match self.next().get_value() {

@@ -28,6 +28,17 @@ pub enum CompilationError {
     ArgumentsError(args::ArgumentParserError),
 }
 
+fn show_help() {
+    println!("Usage:");
+    println!("vsc (-i | --input) <input-file>.v (-o | --output <output-file>)");
+    println!("\nOptions: ");
+    println!("-gen-asm    ;; Generate Assembly file");
+    println!("-gen-c      // Generate C file");
+    println!("-tokens     // Show tokens");
+    println!("-ast        // Show AST (Abstract Syntax Tree)");
+    println!("clean (all) // clean C files, Object files and Assembly files");
+}
+
 fn clean(all: bool) {
     let entries = fs::read_dir("out/").unwrap();
     for entry in entries {
@@ -88,6 +99,10 @@ fn main() -> Result<(), CompilationError> {
         Ok(options) => options,
         Err(err) => return Err(CompilationError::ArgumentsError(err)),
     };
+
+    if options.help {
+        show_help();
+    }
 
     if options.gen_c {
         let (tokens, ast) = generate_c(options.input, options.output)?;

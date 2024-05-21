@@ -8,6 +8,8 @@ pub enum ArgumentParserError {
 }
 
 pub struct Arguments {
+    pub help: bool,
+
     pub clean: bool,
     pub clean_all: bool,
 
@@ -27,6 +29,8 @@ pub fn parse_args(args: VecDeque<String>) -> Result<Arguments, ArgumentParserErr
     }
     let mut idx = 0;
     let mut arguments = Arguments {
+        help: false,
+
         clean: false,
         clean_all: false,
 
@@ -42,6 +46,11 @@ pub fn parse_args(args: VecDeque<String>) -> Result<Arguments, ArgumentParserErr
 
     while idx < args.len() {
         match args[idx].as_str() {
+            "help" => {
+                idx += 1;
+                arguments.help = true;
+            }
+
             "clean" => {
                 idx += 1;
                 arguments.clean = true;

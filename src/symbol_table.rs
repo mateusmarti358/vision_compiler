@@ -9,7 +9,7 @@ pub struct SymbolTable {
 
     structs: HashMap<String, Vec<(String, Type)>>,
     enums: Vec<String>,
-    // functions: HashMap<String, Type>
+    funcs: HashMap<(Option<String>, String), Type>,
 }
 impl SymbolTable {
     pub fn new() -> SymbolTable {
@@ -17,16 +17,17 @@ impl SymbolTable {
             vars: HashMap::new(),
             structs: HashMap::new(),
             enums: Vec::new(),
+            funcs: HashMap::new(),
         }
     }
 
-    pub fn set_var(&mut self, id: String, t: Type, val: Option<Value>) {
-        if let Some(stack) = self.vars.get_mut(&id) {
-            stack.push_back((t, val));
+    pub fn set_var(&mut self, id: &String, t: &Type, val: Option<Value>) {
+        if let Some(stack) = self.vars.get_mut(id) {
+            stack.push_back((t.clone(), val));
         } else {
             let mut stack = VecDeque::new();
-            stack.push_back((t, val));
-            self.vars.insert(id, stack);
+            stack.push_back((t.clone(), val));
+            self.vars.insert(id.to_string(), stack);
         }
     }
     pub fn unset_var(&mut self, id: &String) {
@@ -103,5 +104,27 @@ impl SymbolTable {
         } else {
             false
         }
+    }
+
+    // returns true if the function is overwrited
+    pub fn set_func(
+        &mut self,
+        super_name: &Option<String>,
+        name: &String,
+        ret_type: &Type,
+    ) -> bool {
+        if self
+            .funcs
+            .get(&(super_name.clone(), name.to_string()))
+            .is_some()
+        {
+            return true;
+        }
+        self.funcs
+            .insert((super_name.clone(), name.to_string()), ret_type.clone());
+        false
+    }
+    pub fn get_func(&mut self, super_name: &Option<String>, name: &String) -> Option<&Type> {
+        self.funcs.get(&(super_name.clone(), name.to_string()))
     }
 }
