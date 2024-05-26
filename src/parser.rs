@@ -1078,7 +1078,7 @@ impl Parser {
                 }
 
                 TokenValue::InlineC(inline_c) => {
-                    self.next();
+                    tok = self.next();
                     args.push(Box::new(Statement::InlineC(inline_c)));
                 }
 
