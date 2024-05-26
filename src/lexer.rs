@@ -427,7 +427,6 @@ impl<'a> Lexer<'a> {
                                     continue;
                                 }
 
-                                self.next();
                                 break;
                             }
                         }
