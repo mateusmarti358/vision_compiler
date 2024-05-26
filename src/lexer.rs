@@ -227,6 +227,85 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn make_inline_c(&mut self) -> Option<TokenValue> {
+        self.next();
+
+        let mut inline_c = String::new();
+
+const IN_STR: u16 = 1 << 15;
+const IN_STR_DQ: u16 = 1 << 14;
+const IN_LINE_COMMENT: u16 = 1 << 13;
+const POSS_COMMENT: u16 = 1 << 12;
+const IN_COMMENT: u16 = 1 << 11;
+const POSS_OUT_COMMENT: u16 = 1 << 10;
+const DEPTH_BITS: u16 = (1 << 10) - 1;
+
+        let mut state = 0u16;
+
+        while let Some(c) = self.lookahead {
+            inline_c.push(c);
+            self.next();
+
+            // Out of Comment
+            if c == '\n' && state & IN_LINE_COMMENT != 0 {
+                state = state & !IN_LINE_COMMENT;
+                continue;
+            }
+            if state & IN_COMMENT != 0 {
+                if c == '/' && state & POSS_OUT_COMMENT != 0 {
+                    state = state & !IN_COMMENT; // state in_comment is now false
+                    state = state & !POSS_OUT_COMMENT; // state poss_out_comment is now false
+                } else if c == '*' && state & POSS_OUT_COMMENT != POSS_OUT_COMMENT {
+                    state = state | POSS_OUT_COMMENT; // state poss_out_comment is now true
+                }
+                continue;
+            }
+
+            if state & IN_STR != 0 {
+                if c == if state & IN_STR_DQ != 0 { '"' } else { '\'' } {
+                    state = state & !IN_STR;
+                    state = state & !IN_STR_DQ;
+                }
+                continue;
+            } else {
+                if c == '"' {
+                    state = state | IN_STR;
+                    state = state | IN_STR_DQ;
+                } else if c == '\'' {
+                    state = state | IN_STR;
+                    state = state & !IN_STR_DQ;
+                }
+            }
+
+            if state & POSS_COMMENT != 0 {
+                if c == '*' {
+                    state = state | IN_COMMENT;
+                } else if c == '/' {
+                    state = state | IN_LINE_COMMENT;
+                }
+                state = state & !POSS_COMMENT;
+                continue;
+            }
+            if c == '/' {
+                state = state | POSS_COMMENT;
+                continue;
+            }
+
+            if c == '{' && state & DEPTH_BITS < DEPTH_BITS { // if depth is not full
+                state += 1;
+            }
+            if c == '}' {
+                if state & DEPTH_BITS == 0 {
+                    break;
+                }
+                state -= 1;
+            }
+        }
+
+        inline_c.pop();
+        
+        Some(TokenValue::InlineC(inline_c))
+    }
     fn make_symbol(&mut self) -> Option<TokenValue> {
         match self.lookahead {
             Some('+') => {
@@ -350,90 +429,7 @@ impl<'a> Lexer<'a> {
                         Some(TokenValue::NotEqual)
                     }
                     Some('{') => {
-                        self.next();
-
-                        let mut inline_c = String::new();
-
-                        let mut in_str = (false, ' ');
-
-                        let mut in_line_comment = false;
-
-                        let mut in_comment = false;
-
-                        let mut poss_comment = false;
-                        let mut poss_out_comment = false;
-
-                        let mut depth = 0;
-
-                        while let Some(c) = self.lookahead {
-                            inline_c.push(c);
-                            self.next();
-
-                            if in_line_comment {
-                                if c == '\n' {
-                                    in_line_comment = false;
-                                }
-                                continue;
-                            }
-                            if in_comment {
-                                if c == '/' && poss_out_comment {
-                                    in_comment = false;
-                                    poss_out_comment = false;
-                                }
-                                if c == '*' && poss_out_comment {
-                                    poss_out_comment = false;
-                                }
-
-                                if c == '*' && !poss_out_comment {
-                                    poss_out_comment = true;
-                                }
-                                continue;
-                            }
-
-                            if in_str.0 {
-                                if c == in_str.1 {
-                                    in_str = (false, ' ');
-                                }
-                                continue;
-                            } else {
-                                if c == '"' {
-                                    in_str = (true, '"');
-                                } else if c == '\'' {
-                                    in_str = (true, '\'');
-                                }
-                            }
-
-                            if poss_comment {
-                                if c == '*' {
-                                    in_comment = true;
-                                } else if c == '/' {
-                                    in_line_comment = true;
-                                }
-                                poss_comment = false;
-                                continue;
-                            }
-                            if c == '/' {
-                                poss_comment = true;
-                                continue;
-                            }
-
-                            if c == '{' {
-                                depth += 1;
-                            }
-                            if c == '}' {
-                                depth -= 1;
-
-                                if depth >= 0 {
-                                    continue;
-                                }
-
-                                break;
-                            }
-                        }
-
-                        inline_c.pop();
-
-                        Some(TokenValue::InlineC(inline_c))
+                        self.make_inline_c()
                     }
                     _ => Some(TokenValue::Not),
                 }

@@ -69,4 +69,3 @@ char* read(int size) {
   return input;
 }
 }
-
