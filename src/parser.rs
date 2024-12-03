@@ -1,10 +1,11 @@
-use crate::lexer::{Token, TokenValue};
+use crate::lexer::{ Lexer, LexerError, Token, TokenValue };
 
 use crate::symbol_table::SymbolTable;
-use crate::types::Type;
+use crate::types::{ Type, TypeKind };
 
 #[derive(Debug)]
 pub enum ParserError {
+    LexerError(LexerError),
     UnexpectedToken(Token),
     UndeclaredVariable(String),
     FunctionsCannotReturnConst,
@@ -19,7 +20,7 @@ pub enum Expression {
 
     Identifier(String),
 
-    As(Box<Expression>, Type),
+    As(Box<Expression>, TypeKind),
 
     Index(Box<Expression>, Box<Expression>),
     Call(String, Vec<Box<Expression>>),
@@ -82,6 +83,7 @@ impl std::fmt::Display for Expression {
                     } else {
                         write!(f, ",")?;
                     }
+
                     write!(f, " {}", s)?;
                 }
                 write!(f, " }}")
@@ -139,11 +141,11 @@ pub enum Statement {
     Break,
 
     Function(
-        String,
-        Type,
-        Option<String>,
-        Option<Vec<Box<Statement>>>,
-        Vec<Box<Statement>>,
+        String, // function name
+        TypeKind, // return type
+        Option<String>, // super name
+        Option<Vec<Box<Statement>>>, // arguments
+        Vec<Box<Statement>>, // body
     ),
     Struct(String, Vec<Box<Statement>>),
     Enum(String, Vec<String>),
@@ -255,14 +257,14 @@ impl std::fmt::Display for Statement {
             }
 
             // void doesnt make : void
-            Statement::Function(s, Type::Void, None, None, stmts) => {
+            Statement::Function(s, TypeKind::Void, None, None, stmts) => {
                 write!(f, "func {} do\n", s)?;
                 for s in stmts {
                     write!(f, "\t{}\n", s)?;
                 }
                 write!(f, "end\n")
             }
-            Statement::Function(s, Type::Void, None, Some(args), stmts) => {
+            Statement::Function(s, TypeKind::Void, None, Some(args), stmts) => {
                 let argstr = String::new();
 
                 for (i, arg) in args.iter().enumerate() {
@@ -279,14 +281,14 @@ impl std::fmt::Display for Statement {
                 write!(f, "end\n")
             }
 
-            Statement::Function(s, Type::Void, Some(super_name), None, stmts) => {
+            Statement::Function(s, TypeKind::Void, Some(super_name), None, stmts) => {
                 write!(f, "func {}::{} do\n", super_name, s)?;
                 for s in stmts {
                     write!(f, "\t{}\n", s)?;
                 }
                 write!(f, "end\n")
             }
-            Statement::Function(s, Type::Void, Some(super_name), Some(args), stmts) => {
+            Statement::Function(s, TypeKind::Void, Some(super_name), Some(args), stmts) => {
                 let argstr = String::new();
 
                 for (i, arg) in args.iter().enumerate() {
@@ -378,30 +380,26 @@ impl std::fmt::Display for Statement {
 }
 
 struct Parser {
-    idx: usize,
+    lexer: Lexer,
 
-    tokens: Vec<Token>,
+    curr: Token,
+
     symbol_table: SymbolTable,
 }
 impl Parser {
-    fn new(src: Vec<Token>) -> Parser {
+    fn new(src: Lexer) -> Parser {
         Parser {
-            idx: 0,
+            lexer: src,
 
-            tokens: src,
+            curr: Token::default(),
 
             symbol_table: SymbolTable::new(),
         }
     }
 
-    fn curr(&mut self) -> Token {
-        self.tokens[self.idx - 1].clone()
-    }
-    fn next(&mut self) -> Token {
-        if self.idx < self.tokens.len() {
-            self.idx += 1;
-        }
-        self.tokens[self.idx - 1].clone()
+    fn next(&mut self) -> Result<Token, ParserError> {
+        self.curr = self.lexer.next_token().map_err(|e| ParserError::LexerError(e))?;
+        Ok(self.curr.clone())
     }
 
     fn is_constexpr(&self, expr: &Expression) -> Result<bool, ParserError> {
@@ -420,7 +418,8 @@ impl Parser {
             | Expression::GreaterEqual(lexpr, rexpr)
             | Expression::Different(lexpr, rexpr)
             | Expression::Range(lexpr, rexpr)
-            | Expression::Index(lexpr, rexpr) => {
+            | Expression::Index(lexpr, rexpr)
+            | Expression::Get(lexpr, rexpr) => {
                 Ok(self.is_constexpr(&lexpr)? && self.is_constexpr(&rexpr)?)
             }
 
@@ -431,13 +430,11 @@ impl Parser {
 
             Expression::Identifier(id) => {
                 if let Some(var) = self
-                    .symbol_table
-                    .get_var(&Expression::Identifier(id.to_string()))
-                {
-                    Ok(var.1.is_some())
-                } else {
-                    Err(ParserError::UndeclaredVariable(id.to_string()))
+                                                          .symbol_table
+                                                          .get_var(&Expression::Identifier(id.to_string())) {
+                    return Ok(var.1.is_some())
                 }
+                Err(ParserError::UndeclaredVariable(id.to_string()))
             }
 
             Expression::Integer(_) => Ok(true),
@@ -447,9 +444,7 @@ impl Parser {
             Expression::Struct(_, _) => Ok(true),
             Expression::StaticGet(_, _) => Ok(true),
 
-            Expression::Call(_name, _) => Ok(false),
-
-            Expression::Get(lexpr, _) => self.is_constexpr(lexpr),
+            Expression::Call(_, _) => Ok(false)
         }
     }
     fn _eval_constexpr(&self, expr: &Expression) -> Option<Expression> {
@@ -457,17 +452,52 @@ impl Parser {
         Some(expr.clone())
     }
 
+    fn make_type(&mut self) -> Result<Type, ParserError> {
+        let mut t = Type {
+            kind: TypeKind::Void,
+            is_const: false,
+            is_ref: false,
+        };
+
+        t.is_const = self.curr.get_value() == TokenValue::Const;
+        if t.is_const {
+            self.next()?;
+        }
+
+        t.is_ref = self.curr.get_value() == TokenValue::Ref;
+        if t.is_ref {
+            self.next()?;
+        }
+
+        match self.curr.get_value() {
+            TokenValue::Type(kind) => t.kind = kind,
+            TokenValue::Identifier(tid) => t.kind = TypeKind::Custom(tid),
+            TokenValue::InlineC(ct) => t.kind = TypeKind::Custom(ct),
+            _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
+        };
+
+        if self.next()?.get_value() == TokenValue::OpenBracket {
+            if self.next()?.get_value() != TokenValue::CloseBracket {
+                return Err(ParserError::UnexpectedToken(self.curr.clone()))
+            }
+            self.next()?;
+            t.kind = TypeKind::Array(Box::new(t.clone()));
+        }
+
+        return Ok(t)
+    }
+
     fn parse_expr(&mut self) -> Result<Expression, ParserError> {
         let lhs = self.parse_comparison()?;
 
-        match self.curr().get_value() {
+        match self.curr.get_value() {
             TokenValue::And => {
-                self.next();
+                self.next()?;
                 let rhs = self.parse_comparison()?;
                 Ok(Expression::And(Box::new(lhs), Box::new(rhs)))
             }
             TokenValue::Or => {
-                self.next();
+                self.next()?;
                 let rhs = self.parse_comparison()?;
                 Ok(Expression::Or(Box::new(lhs), Box::new(rhs)))
             }
@@ -477,34 +507,34 @@ impl Parser {
     fn parse_comparison(&mut self) -> Result<Expression, ParserError> {
         let lhs = self.parse_term()?;
 
-        match self.curr().get_value() {
+        match self.curr.get_value() {
             TokenValue::LessThan => {
-                self.next();
+                self.next()?;
                 let rhs = self.parse_term()?;
                 Ok(Expression::LessThan(Box::new(lhs), Box::new(rhs)))
             }
             TokenValue::GreaterThan => {
-                self.next();
+                self.next()?;
                 let rhs = self.parse_term()?;
                 Ok(Expression::GreaterThan(Box::new(lhs), Box::new(rhs)))
             }
             TokenValue::LessEqual => {
-                self.next();
+                self.next()?;
                 let rhs = self.parse_term()?;
                 Ok(Expression::LessEqual(Box::new(lhs), Box::new(rhs)))
             }
             TokenValue::GreaterEqual => {
-                self.next();
+                self.next()?;
                 let rhs = self.parse_term()?;
                 Ok(Expression::GreaterEqual(Box::new(lhs), Box::new(rhs)))
             }
             TokenValue::Equal => {
-                self.next();
+                self.next()?;
                 let rhs = self.parse_term()?;
                 Ok(Expression::Equal(Box::new(lhs), Box::new(rhs)))
             }
             TokenValue::NotEqual => {
-                self.next();
+                self.next()?;
                 let rhs = self.parse_term()?;
                 Ok(Expression::Different(Box::new(lhs), Box::new(rhs)))
             }
@@ -514,14 +544,14 @@ impl Parser {
     fn parse_term(&mut self) -> Result<Expression, ParserError> {
         let mut lhs = self.parse_factor()?;
         loop {
-            match self.curr().get_value() {
+            match self.curr.get_value() {
                 TokenValue::Plus => {
-                    self.next();
+                    self.next()?;
                     let rhs = self.parse_factor()?;
                     lhs = Expression::Add(Box::new(lhs), Box::new(rhs));
                 }
                 TokenValue::Minus => {
-                    self.next();
+                    self.next()?;
                     let rhs = self.parse_factor()?;
                     lhs = Expression::Subtract(Box::new(lhs), Box::new(rhs));
                 }
@@ -533,74 +563,75 @@ impl Parser {
     fn parse_factor(&mut self) -> Result<Expression, ParserError> {
         let mut lhs = self.parse_unary()?;
         loop {
-            match self.curr().get_value() {
+            match self.curr.get_value() {
                 TokenValue::Star => {
-                    self.next();
+                    self.next()?;
                     let rhs = self.parse_unary()?;
                     lhs = Expression::Multiply(Box::new(lhs), Box::new(rhs));
                 }
 
                 TokenValue::Divide => {
-                    self.next();
+                    self.next()?;
                     let rhs = self.parse_unary()?;
                     lhs = Expression::Divide(Box::new(lhs), Box::new(rhs));
                 }
                 TokenValue::Modulo => {
-                    self.next();
+                    self.next()?;
                     let rhs = self.parse_unary()?;
                     lhs = Expression::Mod(Box::new(lhs), Box::new(rhs));
                 }
 
                 TokenValue::Range => {
-                    self.next();
+                    self.next()?;
                     let rhs = self.parse_unary()?;
                     lhs = Expression::Range(Box::new(lhs), Box::new(rhs));
                 }
 
                 TokenValue::As => {
-                    let right = match self.next().get_value() {
+                    let right = match self.next()?.get_value() {
                         TokenValue::Type(t) => t,
-                        TokenValue::Identifier(id) => Type::Custom(id, false),
+                        TokenValue::Identifier(id) => TypeKind::Custom(id),
 
-                        _ => return Err(ParserError::UnexpectedToken(self.curr())),
+                        _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
                     };
-                    self.next();
+                    self.next()?;
 
                     lhs = Expression::As(Box::new(lhs), right);
                 }
-                _ => break, // No more factors, break the loop
+
+                _ => break,
             }
         }
         Ok(lhs)
     }
     fn parse_unary(&mut self) -> Result<Expression, ParserError> {
-        match self.curr().get_value() {
+        match self.curr.get_value() {
             TokenValue::True => {
-                self.next();
+                self.next()?;
                 Ok(Expression::Boolean(true))
             }
             TokenValue::False => {
-                self.next();
+                self.next()?;
                 Ok(Expression::Boolean(false))
             }
 
             TokenValue::Integer(i) => {
-                self.next();
+                self.next()?;
                 Ok(Expression::Integer(i))
             }
             TokenValue::Float(f) => {
-                self.next();
+                self.next()?;
                 Ok(Expression::Float(f))
             }
             TokenValue::String(s) => {
-                self.next();
+                self.next()?;
                 Ok(Expression::String(s))
             }
             TokenValue::Identifier(id) => self.parse_identifier_as_expression(id),
 
             TokenValue::OpenParenthesis => {
                 let expr = self.parse_expr()?;
-                self.next(); // Consume the closing parenthesis
+                self.next()?; // Consume the closing parenthesis
                 Ok(expr)
             }
 
@@ -610,22 +641,22 @@ impl Parser {
             }
 
             TokenValue::InlineC(inline_c) => {
-                self.next();
+                self.next()?;
                 Ok(Expression::InlineC(inline_c))
             }
-            _ => Err(ParserError::UnexpectedToken(self.curr())),
+            _ => Err(ParserError::UnexpectedToken(self.curr.clone())),
         }
     }
 
     fn make_left_expr(&mut self, id: String) -> Result<Expression, ParserError> {
-        match self.curr().get_value() {
+        match self.curr.get_value() {
             TokenValue::Dot => {
-                let field = match self.next().get_value() {
+                let field = match self.next()?.get_value() {
                     TokenValue::Identifier(field) => field,
-                    _ => return Err(ParserError::UnexpectedToken(self.curr())),
+                    _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
                 };
 
-                self.next();
+                self.next()?;
 
                 Ok(Expression::Get(
                     Box::new(Expression::Identifier(id)),
@@ -634,9 +665,9 @@ impl Parser {
             }
 
             TokenValue::OpenBracket => {
-                self.next();
+                self.next()?;
                 let index = self.parse_expr()?;
-                self.next();
+                self.next()?;
                 Ok(Expression::Index(
                     Box::new(Expression::Identifier(id)),
                     Box::new(index),
@@ -647,41 +678,27 @@ impl Parser {
 
             TokenValue::Assign => Ok(Expression::Identifier(id)),
 
-            _ => Err(ParserError::UnexpectedToken(self.curr())),
+            _ => Err(ParserError::UnexpectedToken(self.curr.clone())),
         }
     }
 
     fn make_declaration(&mut self, id: String) -> Result<Statement, ParserError> {
-        if self.next().get_value() != TokenValue::Colon {
-            return Err(ParserError::UnexpectedToken(self.curr()));
+        if self.next()?.get_value() != TokenValue::Colon {
+            return Err(ParserError::UnexpectedToken(self.curr.clone()));
         }
 
-        let is_const = match self.next().get_value() {
-            TokenValue::Const => {
-                self.next();
-                true
-            }
-            _ => false,
-        };
+        self.next()?;
+        let t = self.make_type()?;
 
-        let t = match self.curr().get_value() {
-            TokenValue::Type(mut t) => {
-                t.set_constant(is_const);
-                t
-            }
-            TokenValue::Identifier(tid) => Type::Custom(tid, is_const),
-            _ => return Err(ParserError::UnexpectedToken(self.curr())),
-        };
-
-        if self.next().get_value() != TokenValue::Assign {
+        if self.curr.get_value() != TokenValue::Assign {
             return Ok(Statement::Declaration(id, t, None));
         }
 
-        self.next();
+        self.next()?;
         let expr = self.parse_expr()?;
 
         if self.is_constexpr(&expr)? {
-            self.symbol_table.set_var(&id, &t, None); // TODO: self._eval_constexpr(&expr))
+            self.symbol_table.set_var(&id, &t, None); // TODO: self._eval_constexpr(&expr)
         } else {
             self.symbol_table.set_var(&id, &t, None);
         }
@@ -689,53 +706,53 @@ impl Parser {
         Ok(Statement::Declaration(id, t, Some(expr)))
     }
     fn make_use(&mut self) -> Result<Statement, ParserError> {
-        let mod_name = match self.next().get_value() {
+        let mod_name = match self.next()?.get_value() {
             TokenValue::Identifier(mod_name) => mod_name,
             TokenValue::String(mod_name) => mod_name,
 
-            TokenValue::Type(Type::Bool(_)) => "bool".to_string(),
-            TokenValue::Type(Type::String(_)) => "str".to_string(),
-            _ => return Err(ParserError::UnexpectedToken(self.curr())),
+            TokenValue::Type(TypeKind::Bool) => "bool".to_string(),
+            TokenValue::Type(TypeKind::String) => "str".to_string(),
+            _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
         };
 
-        if self.next().get_value() != TokenValue::From {
+        if self.next()?.get_value() != TokenValue::From {
             return Ok(Statement::Use(mod_name, None));
         }
 
-        let namespace = match self.next().get_value() {
+        let namespace = match self.next()?.get_value() {
             TokenValue::Identifier(id) => id,
             TokenValue::String(id) => id,
-            _ => return Err(ParserError::UnexpectedToken(self.curr())),
+            _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
         };
 
-        self.next();
+        self.next()?;
 
         Ok(Statement::Use(mod_name, Some(namespace)))
     }
     fn make_defer(&mut self) -> Result<Statement, ParserError> {
-        match self.next().get_value() {
+        match self.next()?.get_value() {
             TokenValue::Identifier(id) => {
-                self.next();
+                self.next()?;
                 Ok(Statement::Defer(Box::new(
                     self.parse_identifier_as_statement(id)?,
                 )))
             }
 
-            _ => Err(ParserError::UnexpectedToken(self.curr())),
+            _ => Err(ParserError::UnexpectedToken(self.curr.clone())),
         }
     }
 
     fn parse_struct_field(&mut self) -> Result<Statement, ParserError> {
-        let name = match self.curr().get_value() {
+        let name = match self.curr.get_value() {
             TokenValue::Identifier(name) => name,
-            _ => return Err(ParserError::UnexpectedToken(self.curr())),
+            _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
         };
 
-        if self.next().get_value() != TokenValue::Colon {
-            return Err(ParserError::UnexpectedToken(self.curr()));
+        if self.next()?.get_value() != TokenValue::Colon {
+            return Err(ParserError::UnexpectedToken(self.curr.clone()));
         }
 
-        self.next();
+        self.next()?;
 
         let expr = self.parse_expr()?;
 
@@ -743,11 +760,11 @@ impl Parser {
     }
 
     fn parse_identifier_as_expression(&mut self, id: String) -> Result<Expression, ParserError> {
-        match self.next().get_value() {
+        match self.next()?.get_value() {
             TokenValue::Dot => {
-                let field = match self.next().get_value() {
+                let field = match self.next()?.get_value() {
                     TokenValue::Identifier(field) => field,
-                    _ => return Err(ParserError::UnexpectedToken(self.curr())),
+                    _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
                 };
 
                 let field = self.parse_identifier_as_expression(field)?;
@@ -759,41 +776,41 @@ impl Parser {
             }
 
             TokenValue::DoubleColon => {
-                let field = match self.next().get_value() {
+                let field = match self.next()?.get_value() {
                     TokenValue::Identifier(field) => field,
-                    _ => return Err(ParserError::UnexpectedToken(self.curr())),
+                    _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
                 };
 
-                self.next();
+                self.next()?;
 
                 Ok(Expression::StaticGet(id, field))
             }
 
             TokenValue::OpenBracket => {
-                self.next();
+                self.next()?;
                 let index = self.parse_expr()?;
-                self.next();
+                self.next()?;
                 Ok(Expression::Index(
                     Box::new(Expression::Identifier(id)),
                     Box::new(index),
                 ))
             }
             TokenValue::OpenParenthesis => {
-                self.next();
+                self.next()?;
                 let args = self.parse_boxed_call_args()?;
                 Ok(Expression::Call(id, args))
             }
 
             TokenValue::OpenBrace => {
-                self.next();
+                self.next()?;
 
                 let mut fields = Vec::new();
 
                 loop {
-                    match self.curr().get_value() {
+                    match self.curr.get_value() {
                         TokenValue::CloseBrace => break,
                         TokenValue::Comma => {
-                            self.next();
+                            self.next()?;
                             continue;
                         }
                         _ => (),
@@ -803,7 +820,7 @@ impl Parser {
 
                     fields.push(field);
                 }
-                self.next();
+                self.next()?;
 
                 Ok(Expression::Struct(id, fields))
             }
@@ -812,81 +829,67 @@ impl Parser {
         }
     }
     fn parse_identifier_as_statement(&mut self, id: String) -> Result<Statement, ParserError> {
-        match self.curr().get_value() {
+        match self.curr.get_value() {
             TokenValue::Colon => {
-                let is_const = match self.next().get_value() {
-                    TokenValue::Const => {
-                        self.next();
-                        true
-                    }
-                    _ => false,
-                };
+                self.next()?;
 
-                let var_type = match self.curr().get_value() {
-                    TokenValue::Type(mut t) => {
-                        t.set_constant(is_const);
-                        t
-                    }
-                    TokenValue::Identifier(id) => Type::Custom(id, is_const),
-                    _ => return Err(ParserError::UnexpectedToken(self.curr())),
-                };
+                let var_type = self.make_type()?;
 
-                if self.next().get_value() != TokenValue::Assign {
+                if self.curr.get_value() != TokenValue::Assign {
                     return Ok(Statement::Declaration(id, var_type, None));
                 }
-
-                self.next();
-
+                
+                self.next()?;
                 let expr = self.parse_expr()?;
 
                 Ok(Statement::Declaration(id, var_type, Some(expr)))
             }
 
             TokenValue::Increment => {
-                self.next();
+                self.next()?;
                 Ok(Statement::Increment(Expression::Identifier(id)))
             }
             TokenValue::Decrement => {
-                self.next();
+                self.next()?;
                 Ok(Statement::Decrement(Expression::Identifier(id)))
             }
             TokenValue::Assign => {
-                self.next();
+                self.next()?;
 
                 let expr = self.parse_expr()?;
 
                 Ok(Statement::Assign(Expression::Identifier(id), expr))
             }
             TokenValue::AddAssign => {
-                self.next();
+                self.next()?;
 
                 let expr = self.parse_expr()?;
 
                 Ok(Statement::AddAssign(Expression::Identifier(id), expr))
             }
             TokenValue::SubAssign => {
-                self.next();
+                self.next()?;
 
                 let expr = self.parse_expr()?;
 
                 Ok(Statement::SubAssign(Expression::Identifier(id), expr))
             }
             TokenValue::MulAssign => {
-                self.next();
+                self.next()?;
 
                 let expr = self.parse_expr()?;
 
                 Ok(Statement::MulAssign(Expression::Identifier(id), expr))
             }
             TokenValue::DivAssign => {
-                self.next();
+                self.next()?;
 
                 let expr = self.parse_expr()?;
 
                 Ok(Statement::DivAssign(Expression::Identifier(id), expr))
             }
             TokenValue::ModAssign => {
-                self.next();
+                self.next()?;
 
                 let expr = self.parse_expr()?;
 
@@ -894,12 +897,12 @@ impl Parser {
             }
 
             TokenValue::OpenBracket => {
-                self.next();
+                self.next()?;
                 let index = self.parse_expr()?;
-                self.next();
+                self.next()?;
 
-                if let TokenValue::Assign = self.curr().get_value() {
-                    self.next();
+                if let TokenValue::Assign = self.curr.get_value() {
+                    self.next()?;
 
                     let expr = self.parse_expr()?;
 
@@ -909,14 +912,14 @@ impl Parser {
                     ));
                 }
 
-                Err(ParserError::UnexpectedToken(self.curr()))
+                Err(ParserError::UnexpectedToken(self.curr.clone()))
             }
             TokenValue::Dot => {
                 let lhs = self.make_left_expr(id)?;
 
-                match self.curr().get_value() {
+                match self.curr.get_value() {
                     TokenValue::Assign => {
-                        self.next();
+                        self.next()?;
 
                         let expr = self.parse_expr()?;
 
@@ -924,24 +927,24 @@ impl Parser {
                     }
 
                     TokenValue::OpenParenthesis => {
-                        self.next();
+                        self.next()?;
 
                         let args = self.parse_call_args()?;
 
                         Ok(Statement::Call(lhs, args))
                     }
 
-                    _ => Err(ParserError::UnexpectedToken(self.curr())),
+                    _ => Err(ParserError::UnexpectedToken(self.curr.clone())),
                 }
             }
 
             TokenValue::OpenParenthesis => {
-                self.next();
+                self.next()?;
                 let args = self.parse_call_args()?;
                 Ok(Statement::Call(Expression::Identifier(id), args))
             }
 
-            _ => Err(ParserError::UnexpectedToken(self.curr())),
+            _ => Err(ParserError::UnexpectedToken(self.curr.clone())),
         }
     }
 
@@ -949,23 +952,23 @@ impl Parser {
         let mut args = Vec::new();
 
         loop {
-            match self.curr().get_value() {
+            match self.curr.get_value() {
                 TokenValue::CloseParenthesis => break,
                 _ => {
                     let arg = self.parse_expr()?;
                     args.push(Box::new(arg));
 
-                    match self.curr().get_value() {
+                    match self.curr.get_value() {
                         TokenValue::Comma => {
-                            self.next();
+                            self.next()?;
                         }
                         TokenValue::CloseParenthesis => break,
-                        _ => return Err(ParserError::UnexpectedToken(self.curr())),
+                        _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
                     }
                 }
             }
         }
-        self.next();
+        self.next()?;
 
         Ok(args)
     }
@@ -973,23 +976,23 @@ impl Parser {
         let mut args = Vec::new();
 
         loop {
-            match self.curr().get_value() {
+            match self.curr.get_value() {
                 TokenValue::CloseParenthesis => break,
                 _ => {
                     let arg = self.parse_expr()?;
                     args.push(arg);
 
-                    match self.curr().get_value() {
+                    match self.curr.get_value() {
                         TokenValue::Comma => {
-                            self.next();
+                            self.next()?;
                         }
                         TokenValue::CloseParenthesis => break,
-                        _ => return Err(ParserError::UnexpectedToken(self.curr())),
+                        _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
                     }
                 }
             }
         }
-        self.next();
+        self.next()?;
 
         Ok(args)
     }
@@ -997,10 +1000,10 @@ impl Parser {
     fn parse_body(&mut self) -> Result<Vec<Box<Statement>>, ParserError> {
         let mut body = Vec::new();
 
-        while self.curr().get_value() != TokenValue::End {
-            let statement = match self.curr().get_value() {
+        while self.curr.get_value() != TokenValue::End {
+            let statement = match self.curr.get_value() {
                 TokenValue::Identifier(id) => {
-                    self.next();
+                    self.next()?;
                     self.parse_identifier_as_statement(id.to_string())?
                 }
 
@@ -1012,18 +1015,18 @@ impl Parser {
                 TokenValue::For => self.parse_for()?,
 
                 TokenValue::Continue => {
-                    self.next();
+                    self.next()?;
                     Statement::Continue
                 }
                 TokenValue::Break => {
-                    self.next();
+                    self.next()?;
                     Statement::Break
                 }
 
                 TokenValue::Defer => self.make_defer()?,
                 TokenValue::Return => {
-                    if self.next().get_value() == TokenValue::Assign {
-                        self.next();
+                    if self.next()?.get_value() == TokenValue::Assign {
+                        self.next()?;
                         let expr = self.parse_expr()?;
                         Statement::Return(Some(expr))
                     } else {
@@ -1032,41 +1035,41 @@ impl Parser {
                 }
 
                 TokenValue::InlineC(inline_c) => {
-                    self.next();
+                    self.next()?;
                     Statement::InlineC(inline_c)
                 }
 
-                _ => return Err(ParserError::UnexpectedToken(self.curr())),
+                _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
             };
 
             body.push(Box::new(statement));
         }
 
-        if self.curr().get_value() == TokenValue::End {
-            self.next();
+        if self.curr.get_value() == TokenValue::End {
+            self.next()?;
         }
         Ok(body)
     }
 
     fn parse_fn_decl_args(&mut self) -> Result<Option<Vec<Box<Statement>>>, ParserError> {
-        if self.curr().get_value() != TokenValue::OpenParenthesis {
+        if self.curr.get_value() != TokenValue::OpenParenthesis {
             return Ok(None);
         }
 
         let mut args = Vec::new();
-        let mut tok = self.next();
+        let mut tok = self.next()?;
 
         while tok.get_value() != TokenValue::CloseParenthesis {
             match tok.get_value() {
                 TokenValue::Star => {
-                    if let TokenValue::Identifier(id) = self.next().get_value() {
+                    if let TokenValue::Identifier(id) = self.next()?.get_value() {
                         args.push(Box::new(Statement::VariadicArgument(id)));
-                        if self.next().get_value() != TokenValue::CloseParenthesis {
-                            return Err(ParserError::UnexpectedToken(self.curr()));
+                        if self.next()?.get_value() != TokenValue::CloseParenthesis {
+                            return Err(ParserError::UnexpectedToken(self.curr.clone()));
                         }
                         break;
                     }
-                    return Err(ParserError::UnexpectedToken(self.curr()));
+                    return Err(ParserError::UnexpectedToken(self.curr.clone()));
                 }
 
                 TokenValue::Identifier(id) => {
@@ -1074,16 +1077,16 @@ impl Parser {
 
                     args.push(Box::new(arg_dec));
 
-                    tok = self.curr();
+                    tok = self.curr.clone();
                 }
 
                 TokenValue::InlineC(inline_c) => {
-                    tok = self.next();
+                    tok = self.next()?;
                     args.push(Box::new(Statement::InlineC(inline_c)));
                 }
 
                 TokenValue::Comma => {
-                    tok = self.next();
+                    tok = self.next()?;
                     continue;
                 }
 
@@ -1093,201 +1096,205 @@ impl Parser {
             }
         }
 
-        self.next();
+        self.next()?;
         Ok(Some(args))
     }
-    fn parse_func(&mut self) -> Result<Statement, ParserError> {
-        // function name
-        let mut super_name = match self.next().get_value() {
+
+    fn get_function_name(&mut self) -> Result<(String, Option<String>), ParserError> {
+        let super_name = match self.next()?.get_value() {
             TokenValue::Identifier(id) => Some(id),
-            _ => return Err(ParserError::UnexpectedToken(self.curr())),
+            _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
         };
 
-        let name;
-        if self.next().get_value() == TokenValue::DoubleColon {
-            name = match self.next().get_value() {
-                TokenValue::Identifier(id) => id,
-                _ => return Err(ParserError::UnexpectedToken(self.curr())),
-            };
-            self.next();
-        } else {
-            name = super_name.unwrap();
-            super_name = None;
+        if self.next()?.get_value() != TokenValue::DoubleColon {
+            return Ok((super_name.unwrap(), None))
         }
+
+        if let TokenValue::Identifier(id) = self.next()?.get_value() {
+            self.next()?;
+            return Ok((id, super_name));
+        }
+
+        Err(ParserError::UnexpectedToken(self.curr.clone()))
+    }
+
+    fn parse_func(&mut self) -> Result<Statement, ParserError> {
+        let (name, super_name) = self.get_function_name()?;
 
         let args = self.parse_fn_decl_args()?;
 
-        let ret_type = match self.curr().get_value() {
-            TokenValue::Colon => match self.next().get_value() {
+        let ret_type = match self.curr.get_value() {
+            TokenValue::Colon => match self.next()?.get_value() {
                 TokenValue::Const => {
                     return Err(ParserError::FunctionsCannotReturnConst);
                 }
 
                 TokenValue::Type(t) => {
-                    self.next();
+                    self.next()?;
                     t
                 }
 
                 TokenValue::Identifier(id) => {
-                    self.next();
-                    Type::Custom(id, false)
+                    self.next()?;
+                    TypeKind::Custom(id)
                 }
 
-                _ => return Err(ParserError::UnexpectedToken(self.curr())),
+                _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
             },
-            TokenValue::Do => Type::Void,
-            _ => return Err(ParserError::UnexpectedToken(self.curr())),
+            TokenValue::Do => TypeKind::Void,
+            _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
         };
 
         // function body
-        if self.curr().get_value() != TokenValue::Do {
-            return Err(ParserError::UnexpectedToken(self.curr()));
+        if self.curr.get_value() != TokenValue::Do {
+            return Err(ParserError::UnexpectedToken(self.curr.clone()));
         }
-        self.next();
+        self.next()?;
         let body = self.parse_body()?;
 
         Ok(Statement::Function(name, ret_type, super_name, args, body))
     }
 
     fn parse_struct(&mut self) -> Result<Statement, ParserError> {
-        let name = match self.next().get_value() {
+        let name = match self.next()?.get_value() {
             TokenValue::Identifier(name) => name,
-            _ => return Err(ParserError::UnexpectedToken(self.curr())),
+            _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
         };
-        self.next();
+        self.next()?;
 
         let mut body = Vec::new();
 
-        while self.curr().get_value() != TokenValue::End {
-            let statement = match self.curr().get_value() {
+        while self.curr.get_value() != TokenValue::End {
+            let statement = match self.curr.get_value() {
                 TokenValue::Identifier(id) => self.make_declaration(id)?,
 
                 TokenValue::InlineC(inline_c) => {
-                    self.next();
+                    self.next()?;
                     Statement::InlineC(inline_c)
                 }
 
-                _ => return Err(ParserError::UnexpectedToken(self.curr())),
+                _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
             };
 
             body.push(Box::new(statement));
         }
 
-        self.next();
+        self.next()?;
 
         Ok(Statement::Struct(name, body))
     }
     fn parse_enum(&mut self) -> Result<Statement, ParserError> {
-        let name = match self.next().get_value() {
+        let name = match self.next()?.get_value() {
             TokenValue::Identifier(name) => name,
-            _ => return Err(ParserError::UnexpectedToken(self.curr())),
+            _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
         };
-        self.next();
+        self.next()?;
 
         let mut items = Vec::new();
 
-        while self.curr().get_value() != TokenValue::End {
-            match self.curr().get_value() {
+        while self.curr.get_value() != TokenValue::End {
+            match self.curr.get_value() {
                 TokenValue::Identifier(id) => {
-                    self.next();
+                    self.next()?;
                     items.push(id);
                 }
-                _ => return Err(ParserError::UnexpectedToken(self.curr())),
+                _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
             };
         }
 
-        self.next();
+        self.next()?;
         Ok(Statement::Enum(name, items))
     }
 
     fn parse_if(&mut self) -> Result<Statement, ParserError> {
-        self.next();
+        self.next()?;
         let condition = self.parse_expr()?;
 
-        if self.curr().get_value() != TokenValue::Do {
-            return Err(ParserError::UnexpectedToken(self.curr()));
+        if self.curr.get_value() != TokenValue::Do {
+            return Err(ParserError::UnexpectedToken(self.curr.clone()));
         }
-        self.next();
+        self.next()?;
         let body = self.parse_body()?;
 
-        if self.curr().get_value() != TokenValue::Else {
+        if self.curr.get_value() != TokenValue::Else {
             return Ok(Statement::If(condition, body));
         }
 
-        self.next();
+        self.next()?;
         let else_body = self.parse_body()?;
 
         Ok(Statement::IfElse(condition, body, else_body))
     }
     fn parse_match(&mut self) -> Result<Statement, ParserError> {
-        self.next();
+        self.next()?;
         let condition = self.parse_expr()?;
 
         let mut cases = Vec::new();
         let mut default = None;
 
-        while self.curr().get_value() != TokenValue::End {
-            match self.curr().get_value() {
+        while self.curr.get_value() != TokenValue::End {
+            match self.curr.get_value() {
                 TokenValue::Default => {
-                    self.next();
+                    self.next()?;
                     default = Some(self.parse_body()?);
                 }
 
                 TokenValue::Identifier(sup_id) => {
-                    if matches!(self.next().get_value(), TokenValue::DoubleColon) {
-                        let prop_id = match self.next().get_value() {
+                    if matches!(self.next()?.get_value(), TokenValue::DoubleColon) {
+                        let prop_id = match self.next()?.get_value() {
                             TokenValue::Identifier(id) => id,
-                            _ => return Err(ParserError::UnexpectedToken(self.curr())),
+                            _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
                         };
 
-                        if self.next().get_value() != TokenValue::Do {
-                            return Err(ParserError::UnexpectedToken(self.curr()));
+                        if self.next()?.get_value() != TokenValue::Do {
+                            return Err(ParserError::UnexpectedToken(self.curr.clone()));
                         }
-                        self.next();
+                        self.next()?;
                         cases.push((Expression::StaticGet(sup_id, prop_id), self.parse_body()?));
 
                         continue;
                     }
 
-                    return Err(ParserError::UnexpectedToken(self.curr()));
+                    return Err(ParserError::UnexpectedToken(self.curr.clone()));
                 }
 
-                _ => return Err(ParserError::UnexpectedToken(self.curr())),
+                _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
             }
         }
 
-        self.next();
+        self.next()?;
 
         Ok(Statement::Match(condition, cases, default))
     }
 
     fn parse_while(&mut self) -> Result<Statement, ParserError> {
-        self.next();
+        self.next()?;
         let condition = self.parse_expr()?;
 
-        if self.curr().get_value() != TokenValue::Do {
-            return Err(ParserError::UnexpectedToken(self.curr()));
+        if self.curr.get_value() != TokenValue::Do {
+            return Err(ParserError::UnexpectedToken(self.curr.clone()));
         }
-        self.next();
+        
+        self.next()?;
         let body = self.parse_body()?;
 
         Ok(Statement::While(condition, body))
     }
     fn parse_for(&mut self) -> Result<Statement, ParserError> {
-        let id = match self.next().get_value() {
+        let id = match self.next()?.get_value() {
             TokenValue::Identifier(id) => id,
-            _ => return Err(ParserError::UnexpectedToken(self.curr())),
+            _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
         };
 
-        if self.next().get_value() == TokenValue::In {
-            self.next();
+        if self.next()?.get_value() == TokenValue::In {
+            self.next()?;
 
             let range = self.parse_expr()?;
 
-            if self.curr().get_value() != TokenValue::Do {
-                return Err(ParserError::UnexpectedToken(self.curr()));
+            if self.curr.get_value() != TokenValue::Do {
+                return Err(ParserError::UnexpectedToken(self.curr.clone()));
             }
-            self.next();
+            self.next()?;
             let body = self.parse_body()?;
 
             return Ok(Statement::ForIn(Expression::Identifier(id), range, body));
@@ -1299,10 +1306,10 @@ impl Parser {
     fn parse(&mut self) -> Result<Vec<Statement>, ParserError> {
         let mut ast = Vec::new();
 
-        self.next();
+        self.next()?;
 
-        while self.curr().get_value() != TokenValue::Eof {
-            let statement = match self.curr().get_value() {
+        while self.curr.get_value() != TokenValue::Eof {
+            let statement = match self.curr.get_value() {
                 TokenValue::Func => self.parse_func()?,
                 TokenValue::Struct => self.parse_struct()?,
                 TokenValue::Enum => self.parse_enum()?,
@@ -1310,11 +1317,11 @@ impl Parser {
                 TokenValue::Use => self.make_use()?,
 
                 TokenValue::InlineC(inline_c) => {
-                    self.next();
+                    self.next()?;
                     Statement::InlineC(inline_c)
                 }
 
-                _ => return Err(ParserError::UnexpectedToken(self.curr())),
+                _ => return Err(ParserError::UnexpectedToken(self.curr.clone())),
             };
 
             ast.push(statement);
@@ -1324,6 +1331,10 @@ impl Parser {
     }
 }
 
-pub fn parse(src: Vec<Token>) -> Result<Vec<Statement>, ParserError> {
-    Parser::new(src).parse()
+pub fn parse(lexer: Lexer) -> Result<(Lexer, Vec<Statement>), ParserError> {
+    let mut parser = Parser::new(lexer);
+
+    let ast = parser.parse()?;
+
+    Ok((parser.lexer, ast))
 }

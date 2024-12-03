@@ -65,7 +65,7 @@ void println(const char* fmt, ...) {
 
 char* read(int size) {
   char* input = (char*) malloc(sizeof(char) * size);
-  fgets(input, size, stdin);
+  fgets(input, size + 1, stdin);
   return input;
 }
 }

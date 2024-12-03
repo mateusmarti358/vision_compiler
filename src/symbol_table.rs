@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::parser::Expression;
 
-use crate::types::{Type, Value};
+use crate::types::{ Type, TypeKind, Value };
 
 pub struct SymbolTable {
     vars: HashMap<String, VecDeque<(Type, Option<Value>)>>,
@@ -64,7 +64,7 @@ impl SymbolTable {
                 continue;
             }
 
-            if let Type::Custom(name, _) = &curr_var.clone().unwrap().0 {
+            if let TypeKind::Custom(name) = &curr_var.clone().unwrap().0.kind {
                 if let Some(fields) = self.get_struct(&name) {
                     if let Some(curr_type) = fields.iter().find_map(|(field, ty)| {
                         if *field == curr {

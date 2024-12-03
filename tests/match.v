@@ -1,25 +1,27 @@
 use io from lib
 
+# enum named test
 enum test
-  foo
-  bar
-  baz
+    foo
+    bar
+    baz
 end
 
 func main do
-  t: test = test::foo
+    t: test = test::foo
 
-  match t
-    test::foo do
-      println("foo")
-    end
+    # match statement
+    match t
+        test::foo do
+            println("foo")
+        end
 
-    test::bar do
-      println("bar")
-    end
+        test::bar do
+            println("bar")
+        end
 
-    default do
-      println("baz")
+        default
+            println("baz")
+        end
     end
-  end
 end

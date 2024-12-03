@@ -1,60 +1,59 @@
+use std::fs;
 use std::path::Path;
 
-use crate::lexer::{tokenize, Token};
-use crate::parser::{parse, Expression, Statement};
+use crate::lexer::{ Lexer, Token };
+use crate::parser::{parse, Expression, ParserError, Statement};
 use crate::symbol_table::SymbolTable;
-use crate::types::Type;
+use crate::types::{ Type, TypeKind };
 
-use crate::{read_src, CompilationError};
+use crate::CompilationError;
 
-fn c_type(t: &Type, symbol_table: &SymbolTable) -> String {
-    match t {
-        Type::Custom(s, false) => {
-            if symbol_table.is_enum(s) {
+fn c_typekind(kind: &TypeKind, symbol_table: &SymbolTable) -> String {
+    return match kind {
+        TypeKind::Custom(s) => {
+            if symbol_table.is_enum(&s) {
                 return format!("{}", s);
             }
 
             format!("{s}*")
         }
-        Type::Array(t, false) => format!("{}[]", c_type(t, symbol_table)),
+        TypeKind::Array(t) => format!("{}[]", c_type(&t, symbol_table)),
 
-        Type::Bool(false) => "bool".to_string(),
+        TypeKind::Bool => "bool".to_string(),
 
-        Type::U8(false) => "unsigned char".to_string(),
-        Type::U16(false) => "unsigned short".to_string(),
-        Type::U32(false) => "unsigned int".to_string(),
-        Type::U64(false) => "unsigned long long".to_string(),
+        TypeKind::U8 => "unsigned char".to_string(),
+        TypeKind::U16 => "unsigned short".to_string(),
+        TypeKind::U32 => "unsigned int".to_string(),
+        TypeKind::U64 => "unsigned long long".to_string(),
 
-        Type::I8(false) => "char".to_string(),
-        Type::I16(false) => "short".to_string(),
-        Type::I32(false) => "int".to_string(),
-        Type::I64(false) => "long long".to_string(),
+        TypeKind::I8 => "char".to_string(),
+        TypeKind::I16 => "short".to_string(),
+        TypeKind::I32 => "int".to_string(),
+        TypeKind::I64 => "long long".to_string(),
 
-        Type::F32(false) => "float".to_string(),
-        Type::F64(false) => "double".to_string(),
+        TypeKind::F32 => "float".to_string(),
+        TypeKind::F64 => "double".to_string(),
 
-        Type::String(false) => "char*".to_string(),
-        Type::Void => "void".to_string(),
-
-        Type::Custom(s, true) => format!("const {s}*"),
-        Type::Array(t, true) => format!("const {}[]", c_type(t, symbol_table)),
-        Type::Bool(true) => "const bool".to_string(),
-
-        Type::U8(true) => "const unsigned char".to_string(),
-        Type::U16(true) => "const unsigned short".to_string(),
-        Type::U32(true) => "const unsigned int".to_string(),
-        Type::U64(true) => "const unsigned long long".to_string(),
-
-        Type::I8(true) => "const char".to_string(),
-        Type::I16(true) => "const short".to_string(),
-        Type::I32(true) => "const int".to_string(),
-        Type::I64(true) => "const long long".to_string(),
-
-        Type::F32(true) => "const float".to_string(),
-        Type::F64(true) => "const double".to_string(),
-
-        Type::String(true) => "const char*".to_string(),
+        TypeKind::String => "char*".to_string(),
+        TypeKind::Void => "void".to_string(),
     }
+}
+fn c_type(t: &Type, symbol_table: &SymbolTable) -> String {
+    let mut out = String::new();
+
+    if t.is_const {
+        out.push_str("const ");
+    }
+
+    let kind_str = c_typekind(&t.kind, symbol_table);
+
+    out.push_str(&kind_str);
+
+    if t.is_ref {
+        out.push_str("*");
+    }
+
+    out
 }
 fn expression_to_c(expr: &Expression, symbol_table: &SymbolTable) -> String {
     match expr {
@@ -69,7 +68,12 @@ fn expression_to_c(expr: &Expression, symbol_table: &SymbolTable) -> String {
             expression_to_c(l, symbol_table),
             expression_to_c(r, symbol_table)
         ),
-        Expression::StaticGet(s, r) => format!("{}::{}", s, r),
+        Expression::StaticGet(s, r) => {
+            if symbol_table.is_enum(s) {
+                return format!("{}_{}", s, r);
+            }
+            todo!()
+        },
         Expression::Get(l, r) => match &**r {
             Expression::Call(method, args) => {
                 let mut args_str = String::new();
@@ -152,7 +156,7 @@ fn expression_to_c(expr: &Expression, symbol_table: &SymbolTable) -> String {
 
         Expression::As(e, t) => format!(
             "(({}) {})",
-            c_type(t, symbol_table),
+            c_typekind(t, symbol_table),
             expression_to_c(e, symbol_table)
         ),
 
@@ -445,6 +449,34 @@ impl Transpiler {
                     out.push_str(&self.make_depth());
                     out.push_str("}\n");
                 }
+
+                Statement::IfElse(cond, if_body, else_body) => {
+                    out.push_str(&self.make_depth());
+                    
+                    out.push_str(&format!(
+                        "if({}) {{\n{}",
+                        expression_to_c(cond, &self.symbol_table),
+                        self.body(
+                            if_body,
+                            varg,
+                            [deferred.clone(), deferred_in_scope.clone()].concat()
+                        )
+                    ));
+                    
+                    out.push_str(&self.make_depth());
+                    
+                    out.push_str("} else {\n");
+                    
+                    out.push_str(&self.body(
+                        else_body,
+                        varg,
+                        [deferred.clone(), deferred_in_scope.clone()].concat()
+                    ));
+                    
+                    out.push_str(&self.make_depth());
+                    out.push_str("}\n");
+                }
+
                 Statement::Match(cond, cases, default) => {
                     out.push_str(&self.make_depth());
 
@@ -493,6 +525,7 @@ impl Transpiler {
                     out.push_str(&self.make_depth());
                     out.push_str("}\n");
                 }
+
                 Statement::While(cond, body) => {
                     out.push_str(&self.make_depth());
                     out.push_str(&format!(
@@ -507,6 +540,7 @@ impl Transpiler {
                     out.push_str(&self.make_depth());
                     out.push_str("}\n");
                 }
+                
                 Statement::ForIn(var, iter, body) => {
                     out.push_str(&self.make_depth());
                     out.push_str(&format!(
@@ -585,7 +619,7 @@ impl Transpiler {
     fn make_function(
         &mut self,
         name: String,
-        ret_type: Type,
+        ret_type: TypeKind,
         super_name: Option<String>,
         args: Option<Vec<Box<Statement>>>,
         body: Vec<Box<Statement>>,
@@ -652,13 +686,13 @@ impl Transpiler {
             Some(super_name) => {
                 self.symbol_table.set_var(
                     &"self".to_string(),
-                    &Type::Custom(super_name.clone(), false),
+                    &Type::new(TypeKind::Custom(super_name.clone())),
                     None,
                 );
 
                 self.fn_defs.push(format!(
                     "{} {}_{}({});",
-                    c_type(&ret_type, &self.symbol_table),
+                    c_typekind(&ret_type, &self.symbol_table),
                     super_name,
                     name,
                     args
@@ -667,7 +701,7 @@ impl Transpiler {
             None => {
                 self.fn_defs.push(format!(
                     "{} {}({});",
-                    c_type(&ret_type, &self.symbol_table),
+                    c_typekind(&ret_type, &self.symbol_table),
                     name,
                     args,
                 ));
@@ -721,7 +755,7 @@ impl Transpiler {
     fn make_enum(&mut self, name: String, items: Vec<String>) {
         self.structs.push(format!("typedef enum {{\n"));
         for item in items {
-            self.structs.push(format!("\t{},\n", item));
+            self.structs.push(format!("\t{}_{},\n", name, item));
         }
         self.structs.push(format!("}} {};\n\n", name));
 
@@ -750,8 +784,8 @@ impl Transpiler {
                         self.headers.push(format!("#include \"{}\"\n", mod_name));
                         continue;
                     }
-
-                    let (_, _, transpiled_mod) = match namespace {
+                    
+                    let transpiled_mod = match namespace {
                         Some(namespace) => transpile_from_src(&Path::new(&format!(
                             "{}/{}.v",
                             namespace, mod_name
@@ -778,16 +812,18 @@ pub fn _transpile_from_ast(ast: Vec<Statement>) -> Result<String, CompilationErr
 
 pub fn transpile_from_src(
     src: &Path,
-) -> Result<(Vec<Token>, Vec<Statement>, String), CompilationError> {
-    let tokens = match tokenize(read_src(&src)) {
-        Ok(tokens) => tokens,
-        Err(e) => return Err(CompilationError::LexerError(e)),
-    };
+) -> Result<String, CompilationError> {
+    let src_file = fs::OpenOptions::new().read(true).open(src).unwrap();
 
-    let ast = match parse(tokens.clone()) {
-        Ok(ast) => ast,
-        Err(e) => return Err(CompilationError::ParserError(e)),
-    };
+    let lexer: Lexer = Lexer::new(src_file);
 
-    Ok((tokens, ast.clone(), Transpiler::new().transpile(ast)?))
+    let (lexer, ast) = parse(lexer).map_err(|e| {
+        if let ParserError::LexerError(e) = e {
+            CompilationError::LexerError(e)
+        } else {
+            CompilationError::ParserError(e)
+        }
+    })?;
+
+    Ok(Transpiler::new().transpile(ast)?)
 }

@@ -63,6 +63,7 @@ pub fn parse_args(args: VecDeque<String>) -> Result<Arguments, ArgumentParserErr
 
             "-gen-asm" => arguments.gen_asm = true,
             "-gen-c" => arguments.gen_c = true,
+            "-gen-cranelift-ir" => todo!(),
 
             "-tokens" => arguments.show_tokens = true,
             "-ast" => arguments.show_ast = true,

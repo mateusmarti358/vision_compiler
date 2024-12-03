@@ -1,93 +1,90 @@
-use std::{collections::HashMap, i32};
+use std::collections::HashMap;
+use std::fmt;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Type {
-    Custom(String, bool),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Type {
+    pub kind: TypeKind,
+    pub is_const: bool,
+    pub is_ref: bool,
+}
+impl Type {
+    pub fn new(kind: TypeKind) -> Type {
+        Type {
+            kind,
+            is_const: false,
+            is_ref: false,
+        }
+    }
+}
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_const {
+            write!(f, "const ")?;
+        }
 
-    Array(Box<Type>, bool),
+        if self.is_ref {
+            write!(f, "ref ")?;
+        }
 
-    Bool(bool),
+        write!(f, "{}", self.kind)?;
 
-    U8(bool),
-    U16(bool),
-    U32(bool),
-    U64(bool),
+        Ok(())
+    }
+}
 
-    I8(bool),
-    I16(bool),
-    I32(bool),
-    I64(bool),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypeKind {
+    Custom(String),
 
-    F32(bool),
-    F64(bool),
+    Array(Box<Type>),
 
-    String(bool),
+    Bool,
+
+    U8,
+    U16,
+    U32,
+    U64,
+
+    I8,
+    I16,
+    I32,
+    I64,
+
+    F32,
+    F64,
+
+    String,
 
     Void,
 }
-impl Type {
-    pub fn set_constant(&mut self, new_is_const: bool) {
-        match self {
-            Type::Custom(_, is_const) => *is_const = new_is_const,
+impl fmt::Display for TypeKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            TypeKind::Custom(id) => write!(f, "{}", id),
+            TypeKind::Array(type_kind) => write!(f, "{}[]", type_kind),
 
-            Type::Array(_, is_const) => *is_const = new_is_const,
+            TypeKind::Bool => write!(f, "bool"),
 
-            Type::Bool(is_const) => *is_const = new_is_const,
+            TypeKind::U8 => write!(f, "u8"),
+            TypeKind::U16 => write!(f, "u16"),
+            TypeKind::U32 => write!(f, "u32"),
+            TypeKind::U64 => write!(f, "u64"),
 
-            Type::U8(is_const) => *is_const = new_is_const,
-            Type::U16(is_const) => *is_const = new_is_const,
-            Type::U32(is_const) => *is_const = new_is_const,
-            Type::U64(is_const) => *is_const = new_is_const,
+            TypeKind::I8 => write!(f, "i8"),
+            TypeKind::I16 => write!(f, "i16"),
+            TypeKind::I32 => write!(f, "i32"),
+            TypeKind::I64 => write!(f, "i64"),
 
-            Type::I8(is_const) => *is_const = new_is_const,
-            Type::I16(is_const) => *is_const = new_is_const,
-            Type::I32(is_const) => *is_const = new_is_const,
-            Type::I64(is_const) => *is_const = new_is_const,
+            TypeKind::F32 => write!(f, "f32"),
+            TypeKind::F64 => write!(f, "f64"),
 
-            Type::F32(is_const) => *is_const = new_is_const,
-            Type::F64(is_const) => *is_const = new_is_const,
+            TypeKind::String => write!(f, "string"),
 
-            Type::String(is_const) => *is_const = new_is_const,
-
-            Type::Void => {}
+            TypeKind::Void => write!(f, "void"),
         }
     }
 }
-impl std::fmt::Display for Type {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Type::Custom(s, false) => write!(f, "{}", s),
 
-            Type::Array(t, false) => write!(f, "{}[]", t),
-
-            Type::Bool(false) => write!(f, "bool"),
-
-            Type::U8(is_const) => write!(f, "{}u8", if *is_const { "const " } else { "" }),
-            Type::U16(is_const) => write!(f, "{}u16", if *is_const { "const " } else { "" }),
-            Type::U32(is_const) => write!(f, "{}u32", if *is_const { "const " } else { "" }),
-            Type::U64(is_const) => write!(f, "{}u64", if *is_const { "const " } else { "" }),
-
-            Type::I8(is_const) => write!(f, "{}i8", if *is_const { "const " } else { "" }),
-            Type::I16(is_const) => write!(f, "{}i16", if *is_const { "const " } else { "" }),
-            Type::I32(is_const) => write!(f, "{}i32", if *is_const { "const " } else { "" }),
-            Type::I64(is_const) => write!(f, "{}i64", if *is_const { "const " } else { "" }),
-
-            Type::F32(is_const) => write!(f, "{}f32", if *is_const { "const " } else { "" }),
-            Type::F64(is_const) => write!(f, "{}f64", if *is_const { "const " } else { "" }),
-
-            Type::String(false) => write!(f, "str"),
-            Type::Void => write!(f, "void"),
-
-            Type::Custom(s, true) => write!(f, "const {}", s),
-
-            Type::Array(t, true) => write!(f, "const {}[]", t),
-
-            Type::Bool(true) => write!(f, "const bool"),
-
-            Type::String(true) => write!(f, "const str"),
-        }
-    }
-}
 #[derive(Debug, Clone)]
 pub enum Value {
     Custom(Box<HashMap<String, Value>>),

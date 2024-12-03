@@ -1,6 +1,8 @@
-use std::str::Chars;
+use crate::types::TypeKind;
 
-use crate::types::Type;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, Seek};
+use std::path::Path;
 
 #[derive(Debug)]
 pub enum LexerError {
@@ -12,7 +14,7 @@ pub enum LexerError {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenValue {
-    Type(Type),
+    Type(TypeKind),
 
     Identifier(String),
 
@@ -53,6 +55,7 @@ pub enum TokenValue {
     False,
 
     Const,
+    Ref,
 
     If,
     Else,
@@ -101,6 +104,20 @@ impl Token {
     pub fn get_value(&self) -> TokenValue {
         self.value.clone()
     }
+
+    pub fn is_eof(&self) -> bool {
+        self.value == TokenValue::Eof
+    }
+}
+impl Default for Token {
+    fn default() -> Self {
+        Token {
+            value: TokenValue::Eof,
+            ln: 0,
+            col: 0,
+            raw_pos: 0,
+        }
+    }
 }
 impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -112,101 +129,73 @@ impl std::fmt::Display for Token {
     }
 }
 
-struct Lexer<'a> {
+fn char_at(str: &String, pos: usize) -> char {
+    str.chars().nth(pos).unwrap()
+}
+
+pub struct Lexer {
+    src: BufReader<File>,
+
     ln: usize,
     col: usize,
-    pos: usize,
 
-    src: Chars<'a>,
+    line: String,
+    line_len: usize,
 
     lookahead: Option<char>,
 }
-impl<'a> Lexer<'a> {
-    fn new(src: &'a String) -> Self {
-        let mut chars = src.chars();
-        let lookahead = chars.next();
-        Self {
-            ln: 1,
+impl Lexer {
+    pub fn new(src: File) -> Self {
+        let mut lexer = Self {
+            src: BufReader::new(src),
+
+            ln: 0,
             col: 0,
-            pos: 0,
-            src: chars,
-            lookahead,
+
+            line: String::new(),
+            line_len: 0,
+
+            lookahead: None,
+        };
+
+        lexer.next();
+
+        lexer
+    }
+
+    fn make_token(&mut self, tv: TokenValue) -> Token {
+        Token {
+            value: tv,
+            ln: self.ln,
+            col: self.col,
+            raw_pos: self.src.stream_position().unwrap() as usize,
         }
     }
 
-    fn make_type(str: &String, is_const: bool) -> Option<Type> {
-        match str.as_str() {
-            "bool" => Some(Type::Bool(is_const)),
+    fn next_line(&mut self) {
+        self.ln += 1;
+        self.col = 0;
 
-            "f32" => Some(Type::F32(is_const)),
-            "f64" => Some(Type::F64(is_const)),
-
-            "i8" => Some(Type::I8(is_const)),
-            "i16" => Some(Type::I16(is_const)),
-            "i32" => Some(Type::I32(is_const)),
-            "i64" => Some(Type::I64(is_const)),
-
-            "u8" => Some(Type::U8(is_const)),
-            "u16" => Some(Type::U16(is_const)),
-            "u32" => Some(Type::U32(is_const)),
-            "u64" => Some(Type::U64(is_const)),
-
-            "str" => Some(Type::String(is_const)),
-            "void" => Some(Type::Void),
-
-            _ => None,
+        self.line.clear();
+        match self.src.read_line(&mut self.line) {
+            Ok(len) => self.line_len = len,
+            Err(e) => panic!("Failed to read line: {}", e),
         }
     }
+    fn next(&mut self) -> Option<char> {
+        if self.col >= self.line_len {
+            self.next_line();
 
-    fn make_keyword(str: &String) -> Option<TokenValue> {
-        match str.as_str() {
-            "true" => Some(TokenValue::True),
-            "false" => Some(TokenValue::False),
-
-            "in" => Some(TokenValue::In),
-            "as" => Some(TokenValue::As),
-
-            "if" => Some(TokenValue::If),
-            "else" => Some(TokenValue::Else),
-            "while" => Some(TokenValue::While),
-            "for" => Some(TokenValue::For),
-            "match" => Some(TokenValue::Match),
-
-            "func" => Some(TokenValue::Func),
-            "struct" => Some(TokenValue::Struct),
-            "enum" => Some(TokenValue::Enum),
-
-            "use" => Some(TokenValue::Use),
-            "from" => Some(TokenValue::From),
-
-            "default" => Some(TokenValue::Default),
-            "return" => Some(TokenValue::Return),
-
-            "const" => Some(TokenValue::Const),
-
-            "and" => Some(TokenValue::And),
-            "or" => Some(TokenValue::Or),
-            "not" => Some(TokenValue::Not),
-
-            "do" => Some(TokenValue::Do),
-            "end" => Some(TokenValue::End),
-            "defer" => Some(TokenValue::Defer),
-            "continue" => Some(TokenValue::Continue),
-            "break" => Some(TokenValue::Break),
-
-            _ => None,
+            if self.line_len == 0 {
+                self.lookahead = None;
+                return None;
+            }
         }
-    }
+    
+        self.lookahead = Some(char_at(&self.line, self.col));
+        self.col += 1;
 
-    fn next(&mut self) {
-        self.lookahead = self.src.next();
-        self.pos += 1;
-        if self.lookahead == Some('\n') {
-            self.ln += 1;
-            self.col = 0;
-        } else {
-            self.col += 1;
-        }
+        self.lookahead
     }
 
     fn consume_whitespace(&mut self) {
@@ -499,19 +488,82 @@ const DEPTH_BITS: u16 = (1 << 10) - 1;
         Err(LexerError::UnclosedQuotes)
     }
 
+    fn make_type(str: &String) -> Option<TypeKind> {
+        Some(match str.as_str() {
+            "bool" => TypeKind::Bool,
+
+            "f32" => TypeKind::F32,
+            "f64" => TypeKind::F64,
+
+            "i8" => TypeKind::I8,
+            "i16" => TypeKind::I16,
+            "i32" => TypeKind::I32,
+            "i64" => TypeKind::I64,
+
+            "u8" => TypeKind::U8,
+            "u16" => TypeKind::U16,
+            "u32" => TypeKind::U32,
+            "u64" => TypeKind::U64,
+
+            "str" => TypeKind::String,
+            "void" => TypeKind::Void,
+
+            _ => return None,
+        })
+    }
+    fn make_keyword(str: &String) -> Option<TokenValue> {
+        match str.as_str() {
+            "true" => Some(TokenValue::True),
+            "false" => Some(TokenValue::False),
+
+            "in" => Some(TokenValue::In),
+            "as" => Some(TokenValue::As),
+
+            "if" => Some(TokenValue::If),
+            "else" => Some(TokenValue::Else),
+            "while" => Some(TokenValue::While),
+            "for" => Some(TokenValue::For),
+            "match" => Some(TokenValue::Match),
+
+            "func" => Some(TokenValue::Func),
+            "struct" => Some(TokenValue::Struct),
+            "enum" => Some(TokenValue::Enum),
+
+            "use" => Some(TokenValue::Use),
+            "from" => Some(TokenValue::From),
+
+            "default" => Some(TokenValue::Default),
+            "return" => Some(TokenValue::Return),
+
+            "and" => Some(TokenValue::And),
+            "or" => Some(TokenValue::Or),
+            "not" => Some(TokenValue::Not),
+
+            "const" => Some(TokenValue::Const),
+            "ref" => Some(TokenValue::Ref),
+
+            "do" => Some(TokenValue::Do),
+            "end" => Some(TokenValue::End),
+            "defer" => Some(TokenValue::Defer),
+            "continue" => Some(TokenValue::Continue),
+            "break" => Some(TokenValue::Break),
+
+            _ => None,
+        }
+    }
+
     fn make_id_type_kw(&mut self) -> Result<TokenValue, LexerError> {
         let mut tok = String::new();
 
         while let Some(c) = self.lookahead {
-            if c.is_alphanumeric() || c == '_' {
-                tok.push(c);
-                self.next();
-                continue;
+            if !c.is_alphanumeric() && c != '_' {
+                break;
             }
-            break;
+            tok.push(c);
+            self.next();
         }
 
-        if let Some(t) = Lexer::make_type(&tok, false) {
+        if let Some(t) = Lexer::make_type(&tok) {
             return Ok(TokenValue::Type(t));
         }
 
@@ -522,70 +574,41 @@ const DEPTH_BITS: u16 = (1 << 10) - 1;
         return Ok(TokenValue::Identifier(tok));
     }
 
-    fn make_token(&mut self) -> Result<TokenValue, LexerError> {
+    pub fn next_token(&mut self) -> Result<Token, LexerError> {
+        self.consume_whitespace();
+        if self.lookahead == Some('#') {
+            self.consume_comment();
+        }
+
         if self.lookahead.is_none() {
-            return Ok(TokenValue::Eof);
+            return Ok(Token { value: TokenValue::Eof, ln: self.ln, col: self.col, raw_pos: self.col });
         }
 
         let lookahead = self.lookahead.unwrap();
 
         if !lookahead.is_ascii() {
             return Err(LexerError::UnknownToken(lookahead, self.ln, self.col));
-        } else if lookahead.is_ascii_alphabetic() || lookahead == '_' {
-            Ok(self.make_id_type_kw()?)
-        } else if lookahead.is_ascii_digit() {
-            Ok(self.make_number())
-        } else if lookahead == '"' {
-            Ok(self.make_string(true)?)
-        } else if lookahead == '\'' {
-            Ok(self.make_string(false)?)
+        }
+        
+        if lookahead.is_ascii_alphabetic() || lookahead == '_' {
+            let tv = self.make_id_type_kw()?;
+            return Ok(self.make_token(tv))
+        }
+        
+        if lookahead.is_ascii_digit() {
+            let tv = self.make_number();
+            return Ok(self.make_token(tv))
+        }
+        
+        if lookahead == '"' || lookahead == '\'' {
+            let tv = self.make_string(lookahead == '"')?;
+            return Ok(self.make_token(tv))
+        }
+        
+        if let Some(tok) = self.make_symbol() {
+            Ok(self.make_token(tok))
         } else {
-            if let Some(tok) = self.make_symbol() {
-                Ok(tok)
-            } else {
-                Err(LexerError::UnknownToken(lookahead, self.ln, self.col))
-            }
+            Err(LexerError::UnknownToken(lookahead, self.ln, self.col))
         }
     }
-
-    fn tokenize(&mut self) -> Result<Vec<Token>, LexerError> {
-        let mut tokens = Vec::new();
-
-        while self.lookahead.is_some() {
-            self.consume_whitespace();
-            if self.lookahead == Some('#') {
-                self.consume_comment();
-            }
-
-            let ln = self.ln;
-            let col = self.col;
-            let raw_pos = self.pos;
-
-            match self.make_token() {
-                Ok(tok) => {
-                    let tok = Token {
-                        value: tok,
-                        ln,
-                        col,
-                        raw_pos,
-                    };
-                    tokens.push(tok);
-                }
-                Err(e) => return Err(e),
-            }
-        }
-
-        tokens.push(Token {
-            value: TokenValue::Eof,
-            ln: self.ln,
-            col: self.col,
-            raw_pos: self.pos,
-        });
-
-        Ok(tokens)
-    }
-}
-
-pub fn tokenize(src: String) -> Result<Vec<Token>, LexerError> {
-    Lexer::new(&src).tokenize()
 }

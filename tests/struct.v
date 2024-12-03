@@ -9,7 +9,7 @@ end
 func vec3::move_forward do
   self.z = self.z - 1.0
 end
-
+ 
 func vec3::move_left do
   self.x = self.x - 1.0
 end

@@ -1,6 +1,6 @@
 use io from lib
 
-func sum_even(i: int): int do
+func sum_even(i: i32): i32 do
   if i <= 1 do
     return = 0
   end
@@ -13,6 +13,6 @@ func sum_even(i: int): int do
 end
 
 func main do
-  j: int = sum_even(10)
+  j: i32 = sum_even(10)
   print("${int}", j)
 end
