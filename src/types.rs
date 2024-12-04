@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,16 +85,16 @@ impl fmt::Display for TypeKind {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum Value {
-    Custom(Box<HashMap<String, Value>>),
-    Array(Box<Vec<Value>>),
+// #[derive(Debug, Clone)]
+// pub enum Value {
+//     Custom(Box<HashMap<String, Value>>),
+//     Array(Box<Vec<Value>>),
 
-    Bool(bool),
+//     Bool(bool),
 
-    Int(i32),
-    UInt(u32),
-    Float(f32),
+//     Int(i32),
+//     UInt(u32),
+//     Float(f32),
 
-    String(String),
-}
+//     String(String),
+// }

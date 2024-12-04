@@ -5,8 +5,8 @@ use std::path::Path;
 
 use std::io::Write;
 
-use lexer::Token;
-use parser::Statement;
+// use lexer::Token;
+// use parser::Statement;
 use util::args::{self, parse_args};
 
 mod util;
@@ -63,6 +63,10 @@ fn generate_c(
     let transpiled = ctranspiler::transpile_from_src(input_path)?;
 
     {
+        if !Path::new("./out/").exists() {
+            fs::create_dir("./out/").expect("Couldn't create out directory");
+        }
+        
         let mut out_file = OpenOptions::new()
             .write(true)
             .truncate(true)

@@ -1,6 +1,6 @@
 use crate::lexer::{ Lexer, LexerError, Token, TokenValue };
 
-use crate::symbol_table::SymbolTable;
+// use crate::symbol_table::SymbolTable;
 use crate::types::{ Type, TypeKind };
 
 #[derive(Debug)]
@@ -384,7 +384,7 @@ struct Parser {
 
     curr: Token,
 
-    symbol_table: SymbolTable,
+    // symbol_table: SymbolTable,
 }
 impl Parser {
     fn new(src: Lexer) -> Parser {
@@ -393,7 +393,7 @@ impl Parser {
 
             curr: Token::default(),
 
-            symbol_table: SymbolTable::new(),
+            // symbol_table: SymbolTable::new(),
         }
     }
 
@@ -402,55 +402,53 @@ impl Parser {
         Ok(self.curr.clone())
     }
 
-    fn is_constexpr(&self, expr: &Expression) -> Result<bool, ParserError> {
-        match expr {
-            Expression::Or(lexpr, rexpr)
-            | Expression::And(lexpr, rexpr)
-            | Expression::Add(lexpr, rexpr)
-            | Expression::Subtract(lexpr, rexpr)
-            | Expression::Multiply(lexpr, rexpr)
-            | Expression::Divide(lexpr, rexpr)
-            | Expression::Mod(lexpr, rexpr)
-            | Expression::Equal(lexpr, rexpr)
-            | Expression::LessThan(lexpr, rexpr)
-            | Expression::LessEqual(lexpr, rexpr)
-            | Expression::GreaterThan(lexpr, rexpr)
-            | Expression::GreaterEqual(lexpr, rexpr)
-            | Expression::Different(lexpr, rexpr)
-            | Expression::Range(lexpr, rexpr)
-            | Expression::Index(lexpr, rexpr)
-            | Expression::Get(lexpr, rexpr) => {
-                Ok(self.is_constexpr(&lexpr)? && self.is_constexpr(&rexpr)?)
-            }
+    // fn is_constexpr(&self, expr: &Expression) -> Result<bool, ParserError> {
+    //     match expr {
+    //         Expression::Or(lexpr, rexpr)
+    //         | Expression::And(lexpr, rexpr)
+    //         | Expression::Add(lexpr, rexpr)
+    //         | Expression::Subtract(lexpr, rexpr)
+    //         | Expression::Multiply(lexpr, rexpr)
+    //         | Expression::Divide(lexpr, rexpr)
+    //         | Expression::Mod(lexpr, rexpr)
+    //         | Expression::Equal(lexpr, rexpr)
+    //         | Expression::LessThan(lexpr, rexpr)
+    //         | Expression::LessEqual(lexpr, rexpr)
+    //         | Expression::GreaterThan(lexpr, rexpr)
+    //         | Expression::GreaterEqual(lexpr, rexpr)
+    //         | Expression::Different(lexpr, rexpr)
+    //         | Expression::Range(lexpr, rexpr)
+    //         | Expression::Index(lexpr, rexpr)
+    //         | Expression::Get(lexpr, rexpr) => {
+    //             Ok(self.is_constexpr(&lexpr)? && self.is_constexpr(&rexpr)?)
+    //         }
 
-            Expression::InlineC(_) => Ok(false),
+    //         Expression::InlineC(_) => Ok(false),
 
-            Expression::As(expr, _) => self.is_constexpr(expr),
-            Expression::Not(expr) => self.is_constexpr(expr),
+    //         Expression::As(expr, _) => self.is_constexpr(expr),
+    //         Expression::Not(expr) => self.is_constexpr(expr),
 
-            Expression::Identifier(id) => {
-                if let Some(var) = self
-                                                          .symbol_table
-                                                          .get_var(&Expression::Identifier(id.to_string())) {
-                    return Ok(var.1.is_some())
-                }
-                Err(ParserError::UndeclaredVariable(id.to_string()))
-            }
+    //         Expression::Identifier(id) => {
+    //             if let Some(var) = self.symbol_table.get_var(&Expression::Identifier(id.to_string())) {
+    //                 return Ok(var.1.is_some())
+    //             }
+    //             Err(ParserError::UndeclaredVariable(id.to_string()))
+    //         }
 
-            Expression::Integer(_) => Ok(true),
-            Expression::Float(_) => Ok(true),
-            Expression::Boolean(_) => Ok(true),
-            Expression::String(_) => Ok(true),
-            Expression::Struct(_, _) => Ok(true),
-            Expression::StaticGet(_, _) => Ok(true),
+    //         Expression::Integer(_) => Ok(true),
+    //         Expression::Float(_) => Ok(true),
+    //         Expression::Boolean(_) => Ok(true),
+    //         Expression::String(_) => Ok(true),
+    //         Expression::Struct(_, _) => Ok(true),
+    //         Expression::StaticGet(_, _) => Ok(true),
 
-            Expression::Call(_, _) => Ok(false)
-        }
-    }
-    fn _eval_constexpr(&self, expr: &Expression) -> Option<Expression> {
-        //match expr {}
-        Some(expr.clone())
-    }
+    //         Expression::Call(_, _) => Ok(false)
+    //     }
+    // }
+    // fn _eval_constexpr(&self, expr: &Expression) -> Option<Expression> {
+    //     //match expr {}
+    //     Some(expr.clone())
+    // }
 
     fn make_type(&mut self) -> Result<Type, ParserError> {
         let mut t = Type {
@@ -697,11 +695,11 @@ impl Parser {
         self.next()?;
         let expr = self.parse_expr()?;
 
-        if self.is_constexpr(&expr)? {
-            self.symbol_table.set_var(&id, &t, None); // TODO: self._eval_constexpr(&expr)
-        } else {
-            self.symbol_table.set_var(&id, &t, None);
-        }
+        // if self.is_constexpr(&expr)? {
+        //     self.symbol_table.set_var(&id, &t, None); // TODO: self._eval_constexpr(&expr)
+        // } else {
+        //     self.symbol_table.set_var(&id, &t, None);
+        // }
 
         Ok(Statement::Declaration(id, t, Some(expr)))
     }

@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::lexer::{ Lexer, Token };
+use crate::lexer::Lexer;
 use crate::parser::{parse, Expression, ParserError, Statement};
 use crate::symbol_table::SymbolTable;
 use crate::types::{ Type, TypeKind };
@@ -295,7 +295,7 @@ fn statement_to_c(
                 loop {
                     match method_expression {
                         Expression::Identifier(method) => {
-                            let super_name = symbol_table.get_var(&self_arg).unwrap().0;
+                            let super_name = symbol_table.get_var(&self_arg).unwrap();
                             let mut out = format!("{}_{}(", super_name, method);
 
                             out += &expression_to_c(&self_arg, symbol_table);
@@ -592,7 +592,7 @@ impl Transpiler {
 
                     let (cstmt, decl) = statement_to_c(stmt, &self.symbol_table);
                     if let Some(decl) = decl {
-                        self.symbol_table.set_var(&decl.0, &decl.1, None);
+                        self.symbol_table.set_var(&decl.0, &decl.1);
                         decl_curr_scope.push(decl.0);
                     }
 
@@ -686,8 +686,7 @@ impl Transpiler {
             Some(super_name) => {
                 self.symbol_table.set_var(
                     &"self".to_string(),
-                    &Type::new(TypeKind::Custom(super_name.clone())),
-                    None,
+                    &Type::new(TypeKind::Custom(super_name.clone()))
                 );
 
                 self.fn_defs.push(format!(
@@ -817,7 +816,7 @@ pub fn transpile_from_src(
 
     let lexer: Lexer = Lexer::new(src_file);
 
-    let (lexer, ast) = parse(lexer).map_err(|e| {
+    let (_lexer, ast) = parse(lexer).map_err(|e| {
         if let ParserError::LexerError(e) = e {
             CompilationError::LexerError(e)
         } else {

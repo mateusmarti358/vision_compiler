@@ -2,14 +2,14 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::parser::Expression;
 
-use crate::types::{ Type, TypeKind, Value };
+use crate::types::{ Type, TypeKind };
 
 pub struct SymbolTable {
-    vars: HashMap<String, VecDeque<(Type, Option<Value>)>>,
+    vars: HashMap<String, VecDeque<Type>>,
 
     structs: HashMap<String, Vec<(String, Type)>>,
     enums: Vec<String>,
-    funcs: HashMap<(Option<String>, String), Type>,
+    // funcs: HashMap<(Option<String>, String), Type>,
 }
 impl SymbolTable {
     pub fn new() -> SymbolTable {
@@ -17,23 +17,23 @@ impl SymbolTable {
             vars: HashMap::new(),
             structs: HashMap::new(),
             enums: Vec::new(),
-            funcs: HashMap::new(),
+            // funcs: HashMap::new(),
         }
     }
 
-    pub fn set_var(&mut self, id: &String, t: &Type, val: Option<Value>) {
+    pub fn set_var(&mut self, id: &String, t: &Type) {
         if let Some(stack) = self.vars.get_mut(id) {
-            stack.push_back((t.clone(), val));
+            stack.push_back(t.clone());
         } else {
             let mut stack = VecDeque::new();
-            stack.push_back((t.clone(), val));
+            stack.push_back(t.clone());
             self.vars.insert(id.to_string(), stack);
         }
     }
     pub fn unset_var(&mut self, id: &String) {
         self.vars.get_mut(id).unwrap().pop_back();
     }
-    pub fn get_var(&self, id: &Expression) -> Option<(Type, Option<Value>)> {
+    pub fn get_var(&self, id: &Expression) -> Option<Type> {
         let mut get_stack = VecDeque::new();
         let mut expr = id.clone();
         loop {
@@ -64,25 +64,13 @@ impl SymbolTable {
                 continue;
             }
 
-            if let TypeKind::Custom(name) = &curr_var.clone().unwrap().0.kind {
-                if let Some(fields) = self.get_struct(&name) {
-                    if let Some(curr_type) = fields.iter().find_map(|(field, ty)| {
-                        if *field == curr {
-                            Some(ty.clone())
-                        } else {
-                            None
-                        }
-                    }) {
-                        let curr_val = match &curr_var.unwrap().1 {
-                            Some(Value::Custom(fields)) => fields.get(&curr).cloned(),
-                            None => None,
-                            _ => unreachable!(),
-                        };
-
-                        curr_var = Some((curr_type, curr_val));
-                    }
-                }
-            }
+            let TypeKind::Custom(name) = &curr_var.clone().unwrap().kind else { continue };
+            let Some(fields) = self.get_struct(&name) else { continue };
+            let Some(curr_type) = fields.iter().find_map(|(field, ty)| {
+                if *field == curr { Some(ty.clone()) } else { None }
+            }) else { continue };
+            
+            curr_var = Some(curr_type);
         }
 
         curr_var
@@ -107,24 +95,24 @@ impl SymbolTable {
     }
 
     // returns true if the function is overwrited
-    pub fn set_func(
-        &mut self,
-        super_name: &Option<String>,
-        name: &String,
-        ret_type: &Type,
-    ) -> bool {
-        if self
-            .funcs
-            .get(&(super_name.clone(), name.to_string()))
-            .is_some()
-        {
-            return true;
-        }
-        self.funcs
-            .insert((super_name.clone(), name.to_string()), ret_type.clone());
-        false
-    }
-    pub fn get_func(&mut self, super_name: &Option<String>, name: &String) -> Option<&Type> {
-        self.funcs.get(&(super_name.clone(), name.to_string()))
-    }
+    // pub fn set_func(
+    //     &mut self,
+    //     super_name: &Option<String>,
+    //     name: &String,
+    //     ret_type: &Type,
+    // ) -> bool {
+    //     if self
+    //         .funcs
+    //         .get(&(super_name.clone(), name.to_string()))
+    //         .is_some()
+    //     {
+    //         return true;
+    //     }
+    //     self.funcs
+    //         .insert((super_name.clone(), name.to_string()), ret_type.clone());
+    //     false
+    // }
+    // pub fn get_func(&mut self, super_name: &Option<String>, name: &String) -> Option<&Type> {
+    //     self.funcs.get(&(super_name.clone(), name.to_string()))
+    // }
 }

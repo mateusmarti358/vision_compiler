@@ -1,8 +1,8 @@
 use crate::types::TypeKind;
 
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::{BufRead, BufReader, Seek};
-use std::path::Path;
+// use std::path::Path;
 
 #[derive(Debug)]
 pub enum LexerError {

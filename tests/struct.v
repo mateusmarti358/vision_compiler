@@ -1,9 +1,9 @@
 use io from lib
 
 struct vec3
-  x: float
-  y: float
-  z: float
+  x: f32
+  y: f32
+  z: f32
 end
 
 func vec3::move_forward do
@@ -20,7 +20,7 @@ end
 
 struct entity
   pos: vec3
-  health: int
+  health: i32
   name: str
 end
 

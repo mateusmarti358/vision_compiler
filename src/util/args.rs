@@ -46,7 +46,7 @@ pub fn parse_args(args: VecDeque<String>) -> Result<Arguments, ArgumentParserErr
 
     while idx < args.len() {
         match args[idx].as_str() {
-            "help" => {
+            "help" | "-h" | "--help" => {
                 idx += 1;
                 arguments.help = true;
             }
