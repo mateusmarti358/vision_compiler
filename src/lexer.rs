@@ -317,6 +317,8 @@ const DEPTH_BITS: u16 = (1 << 10) - 1;
                 } else if self.lookahead == Some('-') {
                     self.next();
                     Some(TokenValue::Decrement)
+                } else if self.lookahead.map(|c| c.is_ascii_digit()) == Some(true) {
+                    Some(self.make_number(true))
                 } else {
                     Some(TokenValue::Minus)
                 }
@@ -447,8 +449,9 @@ const DEPTH_BITS: u16 = (1 << 10) - 1;
         }
     }
 
-    fn make_number(&mut self) -> TokenValue {
+    fn make_number(&mut self, neg: bool) -> TokenValue {
         let mut number = String::new();
+        if neg { number.push('-'); }
         let mut float = false;
 
         while let Some(c) = self.lookahead {
@@ -463,19 +466,19 @@ const DEPTH_BITS: u16 = (1 << 10) - 1;
                 break;
             }
         }
-
+        
         if float {
             TokenValue::Float(number.parse().unwrap())
         } else {
             TokenValue::Integer(number.parse().unwrap())
         }
     }
-    fn make_string(&mut self, double_quotes: bool) -> Result<TokenValue, LexerError> {
+    fn make_string(&mut self, quotes: char) -> Result<TokenValue, LexerError> {
         self.next();
         let mut string = String::new();
 
         while let Some(c) = self.lookahead {
-            if c == if double_quotes { '"' } else { '\'' } {
+            if c == quotes {
                 self.next();
                 return Ok(TokenValue::String(string));
             }
@@ -596,12 +599,12 @@ const DEPTH_BITS: u16 = (1 << 10) - 1;
         }
         
         if lookahead.is_ascii_digit() {
-            let tv = self.make_number();
+            let tv = self.make_number(false);
             return Ok(self.make_token(tv))
         }
         
         if lookahead == '"' || lookahead == '\'' {
-            let tv = self.make_string(lookahead == '"')?;
+            let tv = self.make_string(lookahead)?;
             return Ok(self.make_token(tv))
         }
         
